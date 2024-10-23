@@ -160,17 +160,14 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
     // vector<4xi8>
 
     auto origElements = op.getValueToStore().getType().getNumElements();
-
-    // if the size of vector we are loading is not byte-aligned, extra handling
-    // is needed
-    bool isUnalignedEmulation = origElements % scale != 0;
+    if (origElements % scale != 0)
+      return failure();
 
     auto stridedMetadata =
         rewriter.create<memref::ExtractStridedMetadataOp>(loc, op.getBase());
 
     OpFoldResult linearizedIndices;
-    memref::LinearizedMemRefInfo linearizedInfo;
-    std::tie(linearizedInfo, linearizedIndices) =
+    std::tie(std::ignore, linearizedIndices) =
         memref::getLinearizedMemRefOffsetAndSize(
             rewriter, loc, srcBits, dstBits,
             stridedMetadata.getConstifiedMixedOffset(),
@@ -178,48 +175,14 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
             stridedMetadata.getConstifiedMixedStrides(),
             getAsOpFoldResult(adaptor.getIndices()));
 
-    auto foldedFrontPaddingSize = getFrontPaddingSize(
-        rewriter, loc, linearizedInfo, isUnalignedEmulation);
+    auto numElements = origElements / scale;
+    auto bitCast = rewriter.create<vector::BitCastOp>(
+        loc, VectorType::get(numElements, newElementType),
+        op.getValueToStore());
 
-    if (!foldedFrontPaddingSize) {
-      // unimplemented case for dynamic front padding size
-      return failure();
-    }
-
-    auto numElements =
-        (*foldedFrontPaddingSize + origElements + scale - 1) / scale;
-    auto newVectorType = VectorType::get(numElements, newElementType);
-
-    if (isUnalignedEmulation) {
-      auto insertedVectorType =
-          VectorType::get(numElements * scale, oldElementType);
-
-      auto linearizedIndicesValue =
-          getValueOrCreateConstantIndexOp(rewriter, loc, linearizedIndices);
-      auto passThru =
-          rewriter.create<vector::LoadOp>(loc, newVectorType, adaptor.getBase(),
-                                          ValueRange{linearizedIndicesValue});
-      auto bitcastedPassThru =
-          rewriter.create<vector::BitCastOp>(loc, insertedVectorType, passThru);
-
-      // just extract it and use it for the strided slice offset
-      auto insertStridedSlice = rewriter.create<vector::InsertStridedSliceOp>(
-          loc, insertedVectorType, op.getValueToStore(), bitcastedPassThru,
-          rewriter.getI64ArrayAttr({*foldedFrontPaddingSize}),
-          rewriter.getI64ArrayAttr({1}));
-      // bit cast the vector to the original type
-      auto bitCast = rewriter.create<vector::BitCastOp>(loc, newVectorType,
-                                                        insertStridedSlice);
-
-      rewriter.replaceOpWithNewOp<vector::StoreOp>(
-          op, bitCast.getResult(), adaptor.getBase(), linearizedIndicesValue);
-    } else {
-      auto bitCast = rewriter.create<vector::BitCastOp>(loc, newVectorType,
-                                                        op.getValueToStore());
-      rewriter.replaceOpWithNewOp<vector::StoreOp>(
-          op, bitCast.getResult(), adaptor.getBase(),
-          getValueOrCreateConstantIndexOp(rewriter, loc, linearizedIndices));
-    }
+    rewriter.replaceOpWithNewOp<vector::StoreOp>(
+        op, bitCast.getResult(), adaptor.getBase(),
+        getValueOrCreateConstantIndexOp(rewriter, loc, linearizedIndices));
     return success();
   }
 };

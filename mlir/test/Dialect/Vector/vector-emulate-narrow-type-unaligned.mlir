@@ -19,25 +19,6 @@ func.func @vector_load_i2(%arg1: index, %arg2: index) -> vector<3x3xi2> {
 
 //-----
 
-func.func @vector_store_i2(%arg0: vector<3xi2>) {
-    %0 = memref.alloc() : memref<3x3xi2>
-    %c0 = arith.constant 0 : index
-    %c2 = arith.constant 2 : index
-    vector.store %arg0, %0[%c2, %c0] :memref<3x3xi2>, vector<3xi2>
-    return
-}
-
-// CHECK: func @vector_store_i2
-// CHECK: %[[ALLOC:.+]] = memref.alloc() : memref<3xi8>
-// CHECK: %[[INDEX:.+]] = arith.constant 1 : index
-// CHECK: %[[LOAD:.+]] = vector.load %[[ALLOC]][%[[INDEX]]] : memref<3xi8>, vector<2xi8>
-// CHECK: %[[BITCAST1:.+]] = vector.bitcast %[[LOAD]] : vector<2xi8> to vector<8xi2>
-// CHECK: %[[INSERT:.+]] = vector.insert_strided_slice %arg0, %[[BITCAST1]] {offsets = [2], strides = [1]} : vector<3xi2> into vector<8xi2>
-// CHECK: %[[BITCAST2:.+]] = vector.bitcast %[[INSERT]] : vector<8xi2> to vector<2xi8>
-// CHECK: vector.store %[[BITCAST2]], %[[ALLOC]][%[[INDEX]]] : memref<3xi8>, vector<2xi8> 
-
-//-----
-
 func.func @vector_transfer_read_i2() -> vector<3xi2> {
  %0 = memref.alloc() : memref<3x3xi2>
  %c0i2 = arith.constant 0 : i2

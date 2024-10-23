@@ -34,3 +34,29 @@ func.func @vector_transfer_read_i2() -> vector<3xi2> {
 // CHECK: %[[READ:.+]] = vector.transfer_read %[[ALLOC]][%[[INDEX]]], %0 : memref<3xi8>, vector<2xi8>
 // CHECK: %[[BITCAST:.+]] = vector.bitcast %[[READ]] : vector<2xi8> to vector<8xi2>
 // CHECK: vector.extract_strided_slice %[[BITCAST]] {offsets = [2], sizes = [3], strides = [1]} : vector<8xi2> to vector<3xi2>
+
+//-----
+
+func.func @vector_cst_maskedload_i4(%arg1: index, %arg2: index, %passthru: vector<5xi2>) -> vector<3x5xi2> {
+    %0 = memref.alloc() : memref<3x5xi2>
+    %cst = arith.constant dense<0> : vector<3x5xi2>
+    %mask = vector.constant_mask [3] : vector<5xi1>
+    %c0 = arith.constant 0 : index
+    %c2 = arith.constant 2 : index
+    %1 = vector.maskedload %0[%c2, %c0], %mask, %passthru :
+      memref<3x5xi2>, vector<5xi1>, vector<5xi2> into vector<5xi2>
+    %2 = vector.insert %1, %cst [0] : vector<5xi2> into vector<3x5xi2>
+    return %2 : vector<3x5xi2>
+}
+
+//func.func @vector_maskedload_i2(%arg1: index, %passthru: vector<5xi2>) -> vector<3x5xi2> {
+//    %0 = memref.alloc() : memref<3x5xi2>
+//    %cst = arith.constant dense<0> : vector<3x5xi2>
+//    %c0 = arith.constant 0 : index
+//    %c2 = arith.constant 2 : index
+//    %mask = vector.create_mask %arg1 : vector<5xi1>
+//    %1 = vector.maskedload %0[%c2, %c0], %mask, %passthru :
+//      memref<3x5xi2>, vector<5xi1>, vector<5xi2> into vector<5xi2>
+//    %2 = vector.insert %1, %cst [0] : vector<5xi2> into vector<3x5xi2>
+//    return %2 : vector<3x5xi2>
+//}

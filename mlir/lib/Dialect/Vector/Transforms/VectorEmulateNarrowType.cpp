@@ -140,15 +140,23 @@ getFrontPaddingSize(ConversionPatternRewriter &rewriter, Location loc,
   return std::nullopt;
 }
 
-static OpResult extractSubvector(ConversionPatternRewriter &rewriter,
-                                 Location loc, VectorType extractType,
-                                 Value vector, int64_t frontOffset,
-                                 int64_t subvecSize) {
+static Value extractSubvectorFrom(ConversionPatternRewriter &rewriter,
+                                  Location loc, VectorType extractType,
+                                  Value vector, int64_t frontOffset,
+                                  int64_t subvecSize) {
   return rewriter
       .create<vector::ExtractStridedSliceOp>(
           loc, extractType, vector, rewriter.getI64ArrayAttr({frontOffset}),
           rewriter.getI64ArrayAttr({subvecSize}), rewriter.getI64ArrayAttr({1}))
       ->getResult(0);
+}
+
+static Value insertSubvectorInto(ConversionPatternRewriter &rewriter,
+                                 Location loc, Value src, Value dest,
+                                 int64_t offset) {
+  return rewriter.create<vector::InsertStridedSliceOp>(
+      loc, dest.getType(), src, dest, rewriter.getI64ArrayAttr({offset}),
+      rewriter.getI64ArrayAttr({1}));
 }
 
 namespace {
@@ -391,7 +399,7 @@ struct ConvertVectorLoad final : OpConversionPattern<vector::LoadOp> {
         loc, VectorType::get(numElements, newElementType), adaptor.getBase(),
         getValueOrCreateConstantIndexOp(rewriter, loc, linearizedIndices));
 
-    OpResult castedResult =
+    Value castedResult =
         rewriter
             .create<vector::BitCastOp>(
                 loc, VectorType::get(numElements * scale, oldElementType),
@@ -399,8 +407,9 @@ struct ConvertVectorLoad final : OpConversionPattern<vector::LoadOp> {
             ->getResult(0);
 
     if (isUnalignedEmulation) {
-      castedResult = extractSubvector(rewriter, loc, op.getType(), castedResult,
-                                      *foldedFrontPaddingSize, origElements);
+      castedResult =
+          extractSubvectorFrom(rewriter, loc, op.getType(), castedResult,
+                               *foldedFrontPaddingSize, origElements);
     }
 
     rewriter.replaceOp(op, castedResult);
@@ -515,10 +524,8 @@ struct ConvertVectorMaskedLoad final
       // create an empty vector of the new type
       auto emptyVector = rewriter.create<arith::ConstantOp>(
           loc, newBitcastType, rewriter.getZeroAttr(newBitcastType));
-      passthru = rewriter.create<vector::InsertStridedSliceOp>(
-          loc, newBitcastType, op.getPassThru(), emptyVector,
-          rewriter.getI64ArrayAttr({*foldedFrontPaddingSize}),
-          rewriter.getI64ArrayAttr({1}));
+      passthru = insertSubvectorInto(rewriter, loc, op.getPassThru(),
+                                     emptyVector, *foldedFrontPaddingSize);
     }
     auto newPassThru =
         rewriter.create<vector::BitCastOp>(loc, newType, passthru);
@@ -534,25 +541,24 @@ struct ConvertVectorMaskedLoad final
     auto bitCast =
         rewriter.create<vector::BitCastOp>(loc, newBitcastType, newLoad);
 
-    auto mask = op.getMask();
+    Value mask = op.getMask();
     if (isUnalignedEmulation) {
       auto newSelectMaskType =
           VectorType::get(numElements * scale, rewriter.getI1Type());
       // TODO: can fold if op's mask is constant
-      mask = rewriter.create<vector::InsertStridedSliceOp>(
-          loc, newSelectMaskType, op.getMask(),
-          rewriter.create<arith::ConstantOp>(
-              loc, newSelectMaskType, rewriter.getZeroAttr(newSelectMaskType)),
-          rewriter.getI64ArrayAttr({*foldedFrontPaddingSize}),
-          rewriter.getI64ArrayAttr({1}));
+      auto emptyVector = rewriter.create<arith::ConstantOp>(
+          loc, newSelectMaskType, rewriter.getZeroAttr(newSelectMaskType));
+      mask = insertSubvectorInto(rewriter, loc, op.getMask(), emptyVector,
+                                 *foldedFrontPaddingSize);
     }
 
     auto select =
         rewriter.create<arith::SelectOp>(loc, mask, bitCast, passthru);
 
     if (isUnalignedEmulation) {
-      auto extract = extractSubvector(rewriter, loc, op.getType(), select,
-                                      *foldedFrontPaddingSize, origElements);
+      auto extract =
+          extractSubvectorFrom(rewriter, loc, op.getType(), select,
+                               *foldedFrontPaddingSize, origElements);
       rewriter.replaceOp(op, extract);
     } else {
       rewriter.replaceOp(op, select->getResult(0));
@@ -626,10 +632,11 @@ struct ConvertVectorTransferRead final
     auto bitCast = rewriter.create<vector::BitCastOp>(
         loc, VectorType::get(numElements * scale, oldElementType), newRead);
 
-    auto bitCastResult = bitCast->getResult(0);
+    Value bitCastResult = bitCast->getResult(0);
     if (isUnalignedEmulation) {
-      bitCastResult = extractSubvector(rewriter, loc, op.getType(), bitCast,
-                                       *foldedFrontPaddingSize, origElements);
+      bitCastResult =
+          extractSubvectorFrom(rewriter, loc, op.getType(), bitCastResult,
+                               *foldedFrontPaddingSize, origElements);
     }
     rewriter.replaceOp(op, bitCastResult);
 

@@ -103,7 +103,6 @@ static FailureOr<Operation *> getCompressedMaskOp(OpBuilder &rewriter,
   return newMask;
 }
 
-///
 static std::optional<int64_t>
 getFrontPaddingSize(ConversionPatternRewriter &rewriter, Location loc,
                     const memref::LinearizedMemRefInfo linearizedInfo,
@@ -118,6 +117,17 @@ getFrontPaddingSize(ConversionPatternRewriter &rewriter, Location loc,
     return frontPadding.value();
   }
   return std::nullopt;
+}
+
+static OpResult extractSubvector(ConversionPatternRewriter &rewriter,
+                                 Location loc, VectorType extractType,
+                                 Value vector, int64_t frontOffset,
+                                 int64_t subvecSize) {
+  return rewriter
+      .create<vector::ExtractStridedSliceOp>(
+          loc, extractType, vector, rewriter.getI64ArrayAttr({frontOffset}),
+          rewriter.getI64ArrayAttr({subvecSize}), rewriter.getI64ArrayAttr({1}))
+      ->getResult(0);
 }
 
 namespace {
@@ -353,26 +363,24 @@ struct ConvertVectorLoad final : OpConversionPattern<vector::LoadOp> {
     }
 
     auto numElements =
-        (*foldedFrontPaddingSize + origElements + scale - 1) / scale;
-    auto loadVectorType = VectorType::get(numElements, newElementType);
+        llvm::alignTo(*foldedFrontPaddingSize + origElements, scale) / scale;
     auto newLoad = rewriter.create<vector::LoadOp>(
-        loc, loadVectorType, adaptor.getBase(),
+        loc, VectorType::get(numElements, newElementType), adaptor.getBase(),
         getValueOrCreateConstantIndexOp(rewriter, loc, linearizedIndices));
 
-    auto newBitCastType = VectorType::get(numElements * scale, oldElementType);
-    auto bitCast =
-        rewriter.create<vector::BitCastOp>(loc, newBitCastType, newLoad);
+    OpResult castedResult =
+        rewriter
+            .create<vector::BitCastOp>(
+                loc, VectorType::get(numElements * scale, oldElementType),
+                newLoad)
+            ->getResult(0);
 
-    if (newBitCastType.getNumElements() != origElements) {
-      auto extractStridedSlice = rewriter.create<vector::ExtractStridedSliceOp>(
-          loc, op.getType(), bitCast,
-          rewriter.getI64ArrayAttr({*foldedFrontPaddingSize}),
-          rewriter.getI64ArrayAttr({origElements}),
-          rewriter.getI64ArrayAttr({1}));
-      rewriter.replaceOp(op, extractStridedSlice.getResult());
-    } else {
-      rewriter.replaceOp(op, bitCast->getResult(0));
+    if (isUnalignedEmulation) {
+      castedResult = extractSubvector(rewriter, loc, op.getType(), castedResult,
+                                      *foldedFrontPaddingSize, origElements);
     }
+
+    rewriter.replaceOp(op, castedResult);
     return success();
   }
 };
@@ -542,28 +550,22 @@ struct ConvertVectorTransferRead final
     }
 
     auto numElements =
-        (*foldedFrontPaddingSize + origElements + scale - 1) / scale;
-    auto newReadType = VectorType::get(numElements, newElementType);
+        llvm::alignTo(*foldedFrontPaddingSize + origElements, scale) / scale;
 
     auto newRead = rewriter.create<vector::TransferReadOp>(
-        loc, newReadType, adaptor.getSource(),
+        loc, VectorType::get(numElements, newElementType), adaptor.getSource(),
         getValueOrCreateConstantIndexOp(rewriter, loc, linearizedIndices),
         newPadding);
 
-    auto bitCastType = VectorType::get(numElements * scale, oldElementType);
-    auto bitCast =
-        rewriter.create<vector::BitCastOp>(loc, bitCastType, newRead);
+    auto bitCast = rewriter.create<vector::BitCastOp>(
+        loc, VectorType::get(numElements * scale, oldElementType), newRead);
 
+    auto bitCastResult = bitCast->getResult(0);
     if (isUnalignedEmulation) {
-      // we only extract a portion of the vector.
-      rewriter.replaceOpWithNewOp<vector::ExtractStridedSliceOp>(
-          op, op.getType(), bitCast,
-          rewriter.getI64ArrayAttr({*foldedFrontPaddingSize}),
-          rewriter.getI64ArrayAttr({origElements}),
-          rewriter.getI64ArrayAttr({1}));
-    } else {
-      rewriter.replaceOp(op, bitCast->getResult(0));
+      bitCastResult = extractSubvector(rewriter, loc, op.getType(), bitCast,
+                                       *foldedFrontPaddingSize, origElements);
     }
+    rewriter.replaceOp(op, bitCastResult);
 
     return success();
   }

@@ -103,7 +103,8 @@ static FailureOr<Operation *> getCompressedMaskOp(OpBuilder &rewriter,
   // new mask index) only happens on the last dimension of the vectors.
   SmallVector<int64_t> maskShape(
       cast<VectorType>(maskOp->getResultTypes()[0]).getShape());
-  maskShape.back() = numDestElems;
+  const auto innermostDimSize = maskShape.back();
+  maskShape.back() = innermostDimSize / numSrcElemsPerDest;
   auto newMaskType = VectorType::get(maskShape, rewriter.getI1Type());
   std::optional<Operation *> newMask =
       TypeSwitch<Operation *, std::optional<Operation *>>(maskOp)
@@ -155,42 +156,57 @@ static FailureOr<Operation *> getCompressedMaskOp(OpBuilder &rewriter,
           })
           .Case<arith::ConstantOp>([&](auto constantOp)
                                        -> std::optional<Operation *> {
-            // TODO: Support multiple dimensions.
-            if (maskShape.size() != 1)
-              return std::nullopt;
-            // Rearrange the original mask values to cover the whole potential
-            // loading region. For example, in the case of using byte-size for
-            // emulation, given the following mask:
-            //
-            // %mask = [0, 1, 0, 1, 0, 0]
-            //
-            // With front offset of 1, the mask will be padded 0s in the front
-            // and back so that:
-            // 1. It is aligned with the effective loading bits
-            // 2. Its length is multiple of `numSrcElemPerDest` (and the total
-            // coverage size is mulitiple of bytes). The new mask will be like
-            // this before compressing:
-            //
-            // %new_mask = [0, 0, 1, 0, 1, 0, 0, 0]
+            // iterate over flattened elements, reduce each of the
+            // `innermostDimSize` elements
             auto originalMask =
                 cast<DenseIntElementsAttr>(constantOp.getValue());
-            SmallVector<bool> paddedMaskValues(numFrontPadElems, false);
-            paddedMaskValues.append(originalMask.template value_begin<bool>(),
-                                    originalMask.template value_end<bool>());
-            paddedMaskValues.resize(numDestElems * numSrcElemsPerDest, false);
+            auto totalMaskSize =
+                std::distance(originalMask.template value_begin<bool>(),
+                              originalMask.template value_end<bool>());
+            // assert(totalMaskSize %  == 0);
 
-            // Compressing by combining every `numSrcElemsPerDest` elements:
-            SmallVector<bool> compressedMaskValues;
-            for (size_t i = 0; i < paddedMaskValues.size();
-                 i += numSrcElemsPerDest) {
-              bool combinedValue = false;
-              for (int j = 0; j < numSrcElemsPerDest; ++j) {
-                combinedValue |= paddedMaskValues[i + j];
+            SmallVector<bool> compressedResult;
+            for (int i = 0; i < totalMaskSize; i += innermostDimSize) {
+              // Compress the innermost dimension's elements:
+              // First rearrange the original mask values to cover the whole
+              // potential loading region. For example, in the case of using
+              // byte-size for emulation, given the following mask:
+              //
+              // %mask = [0, 1, 0, 1, 0, 0]
+              //
+              // With front offset of 1, the mask will be padded 0s in the front
+              // and back so that:
+              // 1. It is aligned with the effective loading bits
+              // 2. Its length is multiple of `numSrcElemPerDest` (and the total
+              // coverage size is mulitiple of bytes). The new mask will be like
+              // this before compressing:
+              //
+              // %new_mask = [0, 0, 1, 0, 1, 0, 0, 0]
+              // collect each `innermostDimSize` elements and compress them.
+              SmallVector<bool> paddedMaskValues(numFrontPadElems, false);
+              auto beginIndex = originalMask.template value_begin<bool>() + i;
+              paddedMaskValues.append(beginIndex,
+                                      beginIndex + innermostDimSize);
+              paddedMaskValues.resize(
+                  llvm::alignTo(innermostDimSize, numSrcElemsPerDest), false);
+
+              // compression:
+              SmallVector<bool> compressedMaskValues;
+              for (size_t i = 0; i < paddedMaskValues.size();
+                   i += numSrcElemsPerDest) {
+                bool combinedValue = false;
+                for (int j = 0; j < numSrcElemsPerDest; ++j) {
+                  combinedValue |= paddedMaskValues[i + j];
+                }
+                compressedMaskValues.push_back(combinedValue);
               }
-              compressedMaskValues.push_back(combinedValue);
+
+              compressedResult.append(compressedMaskValues.begin(),
+                                      compressedMaskValues.end());
             }
+
             return rewriter.create<arith::ConstantOp>(
-                loc, DenseElementsAttr::get(newMaskType, compressedMaskValues));
+                loc, DenseElementsAttr::get(newMaskType, compressedResult));
           });
 
   if (!newMask)
@@ -601,12 +617,6 @@ struct ConvertVectorMaskedLoad final
   LogicalResult
   matchAndRewrite(vector::MaskedLoadOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    // See #115653
-    if (op.getVectorType().getRank() != 1)
-      return rewriter.notifyMatchFailure(op,
-                                         "only 1-D vectors are supported ATM");
-
     auto loc = op.getLoc();
     auto convertedType = cast<MemRefType>(adaptor.getBase().getType());
     Type oldElementType = op.getType().getElementType();
@@ -694,7 +704,28 @@ struct ConvertVectorMaskedLoad final
     auto numElements =
         llvm::divideCeil(maxIntraDataOffset + origElements, scale);
     auto loadType = VectorType::get(numElements, newElementType);
+
+    Value selectMask = op.getMask();
+
+    // needs shape cast
+    auto passthruNeedsFlattening =
+        cast<VectorType>(passthru.getType()).getRank() > 1;
+    auto originalPassthruType = passthru.getType();
     auto newBitcastType = VectorType::get(numElements * scale, oldElementType);
+    Value newMaskValue = newMask.value()->getResult(0);
+    auto newSelectMaskType =
+        VectorType::get(numElements * scale, rewriter.getI1Type());
+    if (passthruNeedsFlattening) {
+      passthru =
+          rewriter.create<vector::ShapeCastOp>(loc, newBitcastType, passthru);
+      // TODO: maybe flatten in compressMaskOp?
+      auto newMaskType =
+          VectorType::get(loadType.getNumElements(), rewriter.getI1Type());
+      newMaskValue =
+          rewriter.create<vector::ShapeCastOp>(loc, newMaskType, newMaskValue);
+      selectMask = rewriter.create<vector::ShapeCastOp>(loc, newSelectMaskType,
+                                                        selectMask);
+    }
 
     auto emptyVector = rewriter.create<arith::ConstantOp>(
         loc, newBitcastType, rewriter.getZeroAttr(newBitcastType));
@@ -713,30 +744,27 @@ struct ConvertVectorMaskedLoad final
     auto newLoad = rewriter.create<vector::MaskedLoadOp>(
         loc, loadType, adaptor.getBase(),
         getValueOrCreateConstantIndexOp(rewriter, loc, linearizedIndices),
-        newMask.value()->getResult(0), newPassThru);
+        newMaskValue, newPassThru);
 
     // Setting the part that originally was not effectively loaded from memory
     // to pass through.
     auto bitCast =
         rewriter.create<vector::BitCastOp>(loc, newBitcastType, newLoad);
 
-    Value mask = op.getMask();
-    auto newSelectMaskType =
-        VectorType::get(numElements * scale, rewriter.getI1Type());
     // TODO: try to fold if op's mask is constant
     auto emptyMask = rewriter.create<arith::ConstantOp>(
         loc, newSelectMaskType, rewriter.getZeroAttr(newSelectMaskType));
     if (!foldedIntraVectorOffset) {
-      mask = dynamicallyInsertSubVector(
-          rewriter, loc, dyn_cast<TypedValue<VectorType>>(mask), emptyMask,
-          linearizedInfo.intraDataOffset, origElements);
+      selectMask = dynamicallyInsertSubVector(
+          rewriter, loc, dyn_cast<TypedValue<VectorType>>(selectMask),
+          emptyMask, linearizedInfo.intraDataOffset, origElements);
     } else if (isUnalignedEmulation) {
-      mask = staticallyInsertSubvector(rewriter, loc, op.getMask(), emptyMask,
-                                       *foldedIntraVectorOffset);
+      selectMask = staticallyInsertSubvector(
+          rewriter, loc, selectMask, emptyMask, *foldedIntraVectorOffset);
     }
 
     Value result =
-        rewriter.create<arith::SelectOp>(loc, mask, bitCast, passthru);
+        rewriter.create<arith::SelectOp>(loc, selectMask, bitCast, passthru);
     if (!foldedIntraVectorOffset) {
       result = dynamicallyExtractSubVector(
           rewriter, loc, dyn_cast<TypedValue<VectorType>>(result),
@@ -745,6 +773,10 @@ struct ConvertVectorMaskedLoad final
       result =
           staticallyExtractSubvector(rewriter, loc, op.getType(), result,
                                      *foldedIntraVectorOffset, origElements);
+    }
+    if (passthruNeedsFlattening) {
+      result = rewriter.create<vector::ShapeCastOp>(loc, originalPassthruType,
+                                                    result);
     }
     rewriter.replaceOp(op, result);
 

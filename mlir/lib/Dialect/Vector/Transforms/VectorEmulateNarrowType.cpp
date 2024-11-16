@@ -79,8 +79,7 @@ static FailureOr<Operation *> getCompressedMaskOp(OpBuilder &rewriter,
          "numFrontPadElems must be less than numSrcElemsPerDest");
 
   auto numDestElems =
-      (numFrontPadElems + numSrcElems + numSrcElemsPerDest - 1) /
-      numSrcElemsPerDest;
+      llvm::divideCeil(numFrontPadElems + numSrcElems, numSrcElemsPerDest);
 
   Operation *maskOp = mask.getDefiningOp();
   SmallVector<vector::ExtractOp, 2> extractOps;
@@ -104,7 +103,7 @@ static FailureOr<Operation *> getCompressedMaskOp(OpBuilder &rewriter,
   SmallVector<int64_t> maskShape(
       cast<VectorType>(maskOp->getResultTypes()[0]).getShape());
   const auto innermostDimSize = maskShape.back();
-  maskShape.back() = innermostDimSize / numSrcElemsPerDest;
+  maskShape.back() = numDestElems;
   auto newMaskType = VectorType::get(maskShape, rewriter.getI1Type());
   std::optional<Operation *> newMask =
       TypeSwitch<Operation *, std::optional<Operation *>>(maskOp)

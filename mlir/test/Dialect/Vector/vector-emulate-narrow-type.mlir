@@ -393,6 +393,31 @@ func.func @vector_extract_cst_maskedload_i4() -> vector<8x8x16xi4> {
 
 // -----
 
+func.func @vector_maskedload_i2_arith_constant_multidim(%passthru: vector<4xi2>) -> vector<4xi2> {
+  %0 = memref.alloc() : memref<3x4xi2>
+  %mask = arith.constant dense<[[false, false, false, false], [true, false, true, true], [true, false, true, false]]> : vector<3x4xi1>
+  %c0 = arith.constant 0 : index
+  %c3 = arith.constant 3 : index
+  %ext_mask = vector.extract %mask[0] : vector<4xi1> from vector<3x4xi1>
+  %1 = vector.maskedload %0[%c0, %c0], %ext_mask, %passthru :
+    memref<3x4xi2>, vector<4xi1>, vector<4xi2> into vector<4xi2>
+  return %1 : vector<4xi2>
+}
+
+// CHECK: func @vector_maskedload_i2_arith_constant_multidim(
+// CHECK-SAME:   %[[PASSTHRU:[a-zA-Z0-9]+]]
+
+    // %alloc = memref.alloc() : memref<3xi8>
+    // %cst = arith.constant dense<[[false, false, false, false], [true, false, true, true], [true, false, true, false]]> : vector<3x4xi1>
+    // %0 = vector.extract %cst[0] : vector<4xi1> from vector<3x4xi1>
+    // %cst_0 = arith.constant dense<[[false], [true], [true]]> : vector<3x1xi1>
+    // %1 = vector.extract %cst_0[0] : vector<1xi1> from vector<3x1xi1>
+    // %2 = vector.bitcast %arg0 : vector<4xi2> to vector<1xi8>
+    // %c0 = arith.constant 0 : index
+    // %3 = vector.maskedload %alloc[%c0], %1, %2 : memref<3xi8>, vector<1xi1>, vector<1xi8> into vector<1xi8>
+    // %4 = vector.bitcast %3 : vector<1xi8> to vector<4xi2>
+    // %5 = arith.select %0, %4, %arg0 : vector<4xi1>, vector<4xi2>
+
 ///----------------------------------------------------------------------------------------
 /// vector.store
 ///----------------------------------------------------------------------------------------

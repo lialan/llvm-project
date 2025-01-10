@@ -33,6 +33,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdint>
@@ -349,6 +350,29 @@ static void atomicStore(OpBuilder &builder, Location loc,
   builder.create<memref::AtomicYieldOp>(loc, scalarMaskedValue);
 }
 
+/// Generate a non-atomic read-modify-write sequence for subbyte storing.
+/// It has similar logic to `atomicStore`, but without the atomicity.
+static void rmwStore(OpBuilder &builder, Location loc,
+                     MemRefValue linearizedMemref, Value linearizedIndex,
+                     VectorValue valueToStore, Value mask) {
+  assert(valueToStore.getType().getRank() == 1 && "expected 1-D vector");
+
+  // Load the original value from memory, and cast it to the original element
+  // type.
+  auto oneElemVecType =
+      VectorType::get({1}, linearizedMemref.getType().getElementType());
+  Value origVecValue = builder.create<vector::LoadOp>(
+      loc, oneElemVecType, linearizedMemref, ValueRange{linearizedIndex});
+  origVecValue = builder.create<vector::BitCastOp>(loc, valueToStore.getType(),
+                                                   origVecValue);
+
+  // Construct the final masked value and yield it.
+  Value maskedValue = selectAndCast(builder, loc, oneElemVecType, mask,
+                                    origVecValue, valueToStore);
+  builder.create<vector::StoreOp>(loc, maskedValue, linearizedMemref,
+                                  linearizedIndex);
+}
+
 /// Extract `sliceNumElements` from source `vector` at `sliceOffset`,
 /// and insert it into an empty vector at offset `byteOffset`.
 /// Inputs:
@@ -389,7 +413,8 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
   using OpConversionPattern::OpConversionPattern;
 
   ConvertVectorStore(MLIRContext *context, bool useAtomicWrites)
-      : OpConversionPattern<vector::StoreOp>(context) {}
+      : OpConversionPattern<vector::StoreOp>(context),
+        useAtomicWrites_(useAtomicWrites) {}
 
   LogicalResult
   matchAndRewrite(vector::StoreOp op, OpAdaptor adaptor,
@@ -500,8 +525,8 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
           extractSliceIntoByte(rewriter, loc, valueToStore, 0,
                                frontSubWidthStoreElem, *foldedNumFrontPadElems);
 
-      atomicStore(rewriter, loc, linearizedMemref, currentDestIndex,
-                  cast<VectorValue>(value), frontMask.getResult());
+      subEmulatedWidthStore(rewriter, loc, linearizedMemref, currentDestIndex,
+                            cast<VectorValue>(value), frontMask.getResult());
     }
 
     if (currentSourceIndex >= origElements) {
@@ -561,6 +586,23 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
     rewriter.eraseOp(op);
     return success();
   }
+
+  /// Store a subbyte-sized value to memory, with a mask. Depending on the
+  /// configuration, it could be an atomic store or an RMW sequence.
+  template <typename... Args>
+  void subEmulatedWidthStore(Args &&...args) const {
+    static_assert(
+        std::is_same_v<decltype(atomicStore), decltype(rmwStore)> &&
+        "`atomicStore` and `rmwStore` must have same signature, as per "
+        "the design to keep the code clean, which one to call is "
+        "determined by the `useAtomicWrites` flag.");
+    std::function<decltype(atomicStore)> storeFunc =
+        useAtomicWrites_ ? atomicStore : rmwStore;
+    storeFunc(std::forward<Args>(args)...);
+  }
+
+private:
+  const bool useAtomicWrites_;
 };
 
 //===----------------------------------------------------------------------===//
@@ -1755,12 +1797,18 @@ struct RewriteVectorTranspose : OpRewritePattern<vector::TransposeOp> {
 
 void vector::populateVectorNarrowTypeEmulationPatterns(
     const arith::NarrowTypeEmulationConverter &typeConverter,
-    RewritePatternSet &patterns) {
+    RewritePatternSet &patterns, bool useAtomicWrites) {
 
-  // Populate `vector.*` conversion patterns.
-  patterns.add<ConvertVectorLoad, ConvertVectorMaskedLoad, ConvertVectorStore,
+  // Populate `vector.*` load conversion patterns.
+  // TODO: #119553 support atomicity
+  patterns.add<ConvertVectorLoad, ConvertVectorMaskedLoad,
                ConvertVectorMaskedStore, ConvertVectorTransferRead>(
       typeConverter, patterns.getContext());
+
+  // Populate `vector.*` store conversion patterns. The caller can choose
+  // to avoid emitting atomic operations and reduce it to load-modify-write
+  // sequence for stores if it is known there are no thread contentions.
+  patterns.insert<ConvertVectorStore>(patterns.getContext(), useAtomicWrites);
 }
 
 void vector::populateVectorNarrowTypeRewritePatterns(

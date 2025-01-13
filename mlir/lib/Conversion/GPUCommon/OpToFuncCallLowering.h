@@ -14,6 +14,7 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/IR/Builders.h"
+#include "llvm/ADT/STLExtras.h"
 
 namespace mlir {
 
@@ -58,7 +59,8 @@ public:
         std::is_base_of<OpTrait::OneResult<SourceOp>, SourceOp>::value,
         "expected single result op");
 
-    if (op->getResultTypes().front() != op->getOperand(0).getType())
+    auto originalResultType = op->getResult(0).getType();
+    if (originalResultType != op->getOperand(0).getType())
       return rewriter.notifyMatchFailure(
           op, "expected op with same operand and result types");
 
@@ -68,14 +70,38 @@ public:
     }
 
     SmallVector<Value, 1> castedOperands;
-    for (Value operand : adaptor.getOperands())
+    for (auto [index, operand] : llvm::enumerate(adaptor.getOperands())) {
+      // Only for math.ipowi and math.fpowi, the second operand must be an
+      // integer
+      if constexpr (std::is_same_v<SourceOp, math::IPowIOp> ||
+                    std::is_same_v<SourceOp, math::FPowIOp>) {
+        if (index == 1 && isa<IntegerType>(operand.getType())) {
+          auto bitwidth = operand.getType().getIntOrFloatBitWidth();
+          assert(bitwidth <= 32 && "expected integer type with bitwidth <= 32");
+          if (bitwidth < 32) {
+            // extend the integer to i32:
+            operand = rewriter.create<LLVM::SExtOp>(
+                operand.getLoc(), rewriter.getIntegerType(32), operand);
+            castedOperands.push_back(operand);
+          } else {
+            castedOperands.push_back(operand);
+          }
+          continue;
+        }
+      }
       castedOperands.push_back(maybeCast(operand, rewriter));
+    }
 
     Type resultType = castedOperands.front().getType();
     Type funcType = getFunctionType(resultType, castedOperands);
-    StringRef funcName =
-        getFunctionName(cast<LLVM::LLVMFunctionType>(funcType).getReturnType(),
-                        op.getFastmath());
+
+    auto fastmath = arith::FastMathFlags::none;
+    if constexpr (!std::is_same_v<SourceOp, math::IPowIOp>) {
+      fastmath = op.getFastmath();
+    }
+
+    StringRef funcName = getFunctionName(
+        cast<LLVM::LLVMFunctionType>(funcType).getReturnType(), fastmath);
     if (funcName.empty())
       return failure();
 
@@ -85,6 +111,14 @@ public:
 
     if (resultType == adaptor.getOperands().front().getType()) {
       rewriter.replaceOp(op, {callOp.getResult()});
+      return success();
+    }
+
+    if (isa<IntegerType>(originalResultType)) {
+      // Cast result from f64 to i32:
+      Value siOp = rewriter.create<LLVM::FPToSIOp>(
+          op->getLoc(), originalResultType, callOp.getResult());
+      rewriter.replaceOp(op, {siOp});
       return success();
     }
 
@@ -98,6 +132,14 @@ public:
 private:
   Value maybeCast(Value operand, PatternRewriter &rewriter) const {
     Type type = operand.getType();
+
+    if (isa<IntegerType>(type)) {
+      // cast it to double:
+      if (!f64Func.empty())
+        return rewriter.create<LLVM::SIToFPOp>(
+            operand.getLoc(), Float64Type::get(rewriter.getContext()), operand);
+    }
+
     if (!isa<Float16Type, BFloat16Type>(type))
       return operand;
 
@@ -115,6 +157,13 @@ private:
   }
 
   StringRef getFunctionName(Type type, arith::FastMathFlags flag) const {
+    // Delegate integer functions to f64Func.
+    if (isa<IntegerType>(type)) {
+      assert(!f64Func.empty() &&
+             "expected f64Func to be set for integer types");
+      return f64Func;
+    }
+
     if (isa<Float16Type>(type))
       return f16Func;
     if (isa<Float32Type>(type)) {

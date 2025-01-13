@@ -115,6 +115,8 @@ void mlir::populateMathToROCDLConversionPatterns(
                                   "__ocml_erf_f64", "__ocml_erf_f16");
   populateOpPatterns<math::FPowIOp>(converter, patterns, "__ocml_pown_f32",
                                     "__ocml_pown_f64", "__ocml_pown_f16");
+  populateOpPatterns<math::IPowIOp>(converter, patterns, "__ocml_pown_f64",
+                                    "__ocml_pown_f64", "__ocml_pown_f64");
   // Single arith pattern that needs a ROCDL call, probably not
   // worth creating a separate pass for it.
   populateOpPatterns<arith::RemFOp>(converter, patterns, "__ocml_fmod_f32",

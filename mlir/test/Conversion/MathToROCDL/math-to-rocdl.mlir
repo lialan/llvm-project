@@ -502,6 +502,25 @@ module @test_module {
 
 // -----
 
+module @test_module {
+  // CHECK: llvm.func @__ocml_pown_f64(f64, i32) -> f64
+  // CHECK-LABEL: func @math_ipowi
+  func.func @math_ipowi(%arg16: i16, %arg16_1: i16, %arg32: i32, %arg32_1: i32) -> (i16, i32) {
+    // CHECK: %[[F16:.*]] = llvm.sitofp %{{.*}} : i16 to f64
+    // CHECK: %[[N16:.*]] = llvm.sext %{{.*}}: i16 to i32
+    // CHECK: %[[RESULT_16:.*]] = llvm.call @__ocml_pown_f64(%[[F16]], %[[N16]]) : (f64, i32) -> f64
+    // CHECK: llvm.fptosi %[[RESULT_16]] : f64 to i16
+    %0 = math.ipowi %arg16, %arg16_1 : i16
+    // CHECK: %[[F32:.*]] = llvm.sitofp %arg2 : i32 to f64
+    // CHECK: %[[RESULT_32:.*]] = llvm.call @__ocml_pown_f64(%[[F32]], %{{.*}}) : (f64, i32) -> f64
+    // CHECK: llvm.fptosi %[[RESULT_32]] : f64 to i32
+    %1 = math.ipowi %arg32, %arg32_1 : i32
+    return %0, %1 : i16, i32
+  }
+}
+
+// -----
+
 // Math operation not inside function
 // Ensure it not crash
 

@@ -58,10 +58,9 @@ public:
         std::is_base_of<OpTrait::OneResult<SourceOp>, SourceOp>::value,
         "expected single result op");
 
-    static_assert(std::is_base_of<OpTrait::SameOperandsAndResultType<SourceOp>,
-                                  SourceOp>::value ||
-                      std::is_same_v<SourceOp, math::FPowIOp>,
-                  "expected op with same operand and result types");
+    if (op->getResultTypes().front() != op->getOperand(0).getType())
+      return rewriter.notifyMatchFailure(
+          op, "expected op with same operand and result types");
 
     if (!op->template getParentOfType<FunctionOpInterface>()) {
       return rewriter.notifyMatchFailure(

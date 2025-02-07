@@ -558,6 +558,23 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
     // need for atomicity). Stores to Bytes 0 and Byte 2 are "partial", hence
     // requiring RMW access (atomicity is required).
 
+    emitStaticCase(op, adaptor, rewriter, linearizedIndices, numSrcElemsPerDest,
+                   *foldedNumFrontPadElems);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+
+  void emitStaticCase(vector::StoreOp op, OpAdaptor adaptor,
+                      ConversionPatternRewriter &rewriter,
+                      OpFoldResult linearizedIndices,
+                      int32_t numSrcElemsPerDest, int32_t numFrontPadElems
+                      ) const {
+    auto loc = op.getLoc();
+    auto valueToStore = cast<VectorValue>(op.getValueToStore());
+    auto origElements = valueToStore.getType().getNumElements();
+    auto memrefBase = cast<MemRefValue>(adaptor.getBase());
+
     // The index into the target memref we are storing to.
     Value currentDestIndex =
         getValueOrCreateConstantIndexOp(rewriter, loc, linearizedIndices);
@@ -575,32 +592,31 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
     // with the unaligned part so that the rest elements are aligned to width
     // boundary.
     auto frontSubWidthStoreElem =
-        (numSrcElemsPerDest - *foldedNumFrontPadElems) % numSrcElemsPerDest;
+        (numSrcElemsPerDest - numFrontPadElems) % numSrcElemsPerDest;
     if (frontSubWidthStoreElem > 0) {
       SmallVector<bool> frontMaskValues(numSrcElemsPerDest, false);
-      if (*foldedNumFrontPadElems + origElements < numSrcElemsPerDest) {
-        std::fill_n(frontMaskValues.begin() + *foldedNumFrontPadElems,
+      if (numFrontPadElems + origElements < numSrcElemsPerDest) {
+        std::fill_n(frontMaskValues.begin() + numFrontPadElems,
                     origElements, true);
         frontSubWidthStoreElem = origElements;
       } else {
         std::fill_n(frontMaskValues.end() - frontSubWidthStoreElem,
-                    *foldedNumFrontPadElems, true);
+                    numFrontPadElems, true);
       }
       auto frontMask = rewriter.create<arith::ConstantOp>(
           loc, DenseElementsAttr::get(subWidthStoreMaskType, frontMaskValues));
 
-      currentSourceIndex = numSrcElemsPerDest - (*foldedNumFrontPadElems);
+      currentSourceIndex = numSrcElemsPerDest - (numFrontPadElems);
       auto value =
           extractSliceIntoByte(rewriter, loc, valueToStore, 0,
-                               frontSubWidthStoreElem, *foldedNumFrontPadElems);
+                               frontSubWidthStoreElem, numFrontPadElems);
 
       storeFunc(rewriter, loc, memrefBase, currentDestIndex,
                 cast<VectorValue>(value), frontMask.getResult());
     }
 
     if (currentSourceIndex >= origElements) {
-      rewriter.eraseOp(op);
-      return success();
+      return;
     }
 
     // Increment the destination index by 1 to align to the emulated width
@@ -653,9 +669,6 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
       storeFunc(rewriter, loc, memrefBase, currentDestIndex,
                 cast<VectorValue>(subWidthStorePart), backMask.getResult());
     }
-
-    rewriter.eraseOp(op);
-    return success();
   }
 
 private:

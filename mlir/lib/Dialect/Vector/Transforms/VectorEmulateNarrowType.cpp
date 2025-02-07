@@ -244,15 +244,14 @@ static Value staticallyInsertSubvector(OpBuilder &rewriter, Location loc,
 /// function emits multiple `vector.extract` and `vector.insert` ops, so only
 /// use it when `offset` cannot be folded into a constant value.
 static Value dynamicallyExtractSubVector(OpBuilder &rewriter, Location loc,
-                                         Value source, Value dest,
-                                         OpFoldResult offset,
+                                         Value source, Value dest, Value offset,
                                          int64_t numElementsToExtract) {
   assert(isa<VectorValue>(source) && "expected `source` to be a vector type");
   for (int i = 0; i < numElementsToExtract; ++i) {
     Value extractLoc =
-        (i == 0) ? offset.dyn_cast<Value>()
+        (i == 0) ? offset
                  : rewriter.create<arith::AddIOp>(
-                       loc, rewriter.getIndexType(), offset.dyn_cast<Value>(),
+                       loc, rewriter.getIndexType(), offset,
                        rewriter.create<arith::ConstantIndexOp>(loc, i));
     auto extractOp =
         rewriter.create<vector::ExtractOp>(loc, source, extractLoc);
@@ -873,7 +872,7 @@ struct ConvertVectorLoad final : OpConversionPattern<vector::LoadOp> {
           loc, op.getType(), rewriter.getZeroAttr(op.getType()));
       result = dynamicallyExtractSubVector(
           rewriter, loc, dyn_cast<TypedValue<VectorType>>(result), resultVector,
-          linearizedInfo.intraDataOffset, origElements);
+          cast<Value>(linearizedInfo.intraDataOffset), origElements);
     } else if (!isFullyAligned) {
       result = staticallyExtractSubvector(
           rewriter, loc, result, *foldedIntraVectorOffset, origElements);
@@ -1039,7 +1038,7 @@ struct ConvertVectorMaskedLoad final
     if (!foldedIntraVectorOffset) {
       result = dynamicallyExtractSubVector(
           rewriter, loc, result, op.getPassThru(),
-          linearizedInfo.intraDataOffset, origElements);
+          cast<Value>(linearizedInfo.intraDataOffset), origElements);
     } else if (!isAlignedEmulation) {
       result = staticallyExtractSubvector(
           rewriter, loc, result, *foldedIntraVectorOffset, origElements);
@@ -1127,9 +1126,9 @@ struct ConvertVectorTransferRead final
     if (!foldedIntraVectorOffset) {
       auto zeros = rewriter.create<arith::ConstantOp>(
           loc, op.getType(), rewriter.getZeroAttr(op.getType()));
-      result = dynamicallyExtractSubVector(rewriter, loc, bitCast, zeros,
-                                           linearizedInfo.intraDataOffset,
-                                           origElements);
+      result = dynamicallyExtractSubVector(
+          rewriter, loc, bitCast, zeros,
+          cast<Value>(linearizedInfo.intraDataOffset), origElements);
     } else if (!isFullyAligned) {
       result = staticallyExtractSubvector(
           rewriter, loc, result, *foldedIntraVectorOffset, origElements);

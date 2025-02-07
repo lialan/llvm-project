@@ -548,10 +548,8 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
                             numSrcElemsPerDest, *foldedNumFrontPadElems);
     }
 
-    // Handle dynamic case
-    return rewriter.notifyMatchFailure(
-        op, "subbyte store emulation: dynamic front padding size is "
-            "not yet implemented");
+    return emitDynamicCase(op, adaptor, rewriter, linearizedIndices,
+                           numSrcElemsPerDest, *foldedNumFrontPadElems);
   }
 
   LogicalResult emitNonPartialCase(vector::StoreOp op, OpAdaptor adaptor,
@@ -617,7 +615,7 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
       auto frontMask = rewriter.create<arith::ConstantOp>(
           loc, DenseElementsAttr::get(subWidthStoreMaskType, frontMaskValues));
 
-      currentSourceIndex = numSrcElemsPerDest - (numFrontPadElems);
+      currentSourceIndex = numSrcElemsPerDest - numFrontPadElems;
       auto value =
           extractSliceIntoByte(rewriter, loc, valueToStore, 0,
                                frontSubWidthStoreElem, numFrontPadElems);
@@ -683,6 +681,43 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
     }
 
     rewriter.eraseOp(op);
+    return success();
+  }
+
+  LogicalResult emitDynamicCase(vector::StoreOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter,
+                                OpFoldResult linearizedIndices,
+                                int32_t numSrcElemsPerDest,
+                                int32_t numFrontPadElems) const {
+    auto loc = op.getLoc();
+    auto valueToStore = cast<VectorValue>(op.getValueToStore());
+    auto origElements = valueToStore.getType().getNumElements();
+    auto memrefBase = cast<MemRefValue>(adaptor.getBase());
+
+    // The index into the target memref we are storing to.
+    Value currentDestIndex =
+        getValueOrCreateConstantIndexOp(rewriter, loc, linearizedIndices);
+    // The index into the source vector we are currently processing.
+
+    // Step 1: partial width store for the leading byte.
+
+    // Generate front mask.
+    auto reversedFrontMask = rewriter.create<vector::CreateMaskOp>(
+        loc, VectorType::get({numSrcElemsPerDest}, rewriter.getI1Type()),
+        rewriter.getBoolAttr(false));
+    auto minusOne = rewriter.create<arith::ConstantIndexOp>(loc, -1);
+    auto frontMask =
+        rewriter.create<arith::XOrIOp>(loc, reversedFrontMask, minusOne);
+
+    // auto value =
+    //      extractSliceIntoByte(rewriter, loc, valueToStore, 0,
+    //                           frontSubWidthStoreElem, numFrontPadElems);
+    auto zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+    auto firstInsertValue =
+        dynamicallyExtractSubVector(rewriter, loc, valueToStore, Value dest,
+                                    zero, int64_t numElementsToExtract)
+
+            rewriter.eraseOp(op);
     return success();
   }
 

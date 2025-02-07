@@ -33,6 +33,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdint>
@@ -499,36 +500,7 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
             ? 0
             : getConstantIntValue(linearizedInfo.intraDataOffset);
 
-    if (!foldedNumFrontPadElems) {
-      return rewriter.notifyMatchFailure(
-          op, "subbyte store emulation: dynamic front padding size is "
-              "not yet implemented");
-    }
-
-    auto memrefBase = cast<MemRefValue>(adaptor.getBase());
-
-    // Conditions when atomic RMWs are not needed:
-    // 1. The source vector size (in bits) is a multiple of byte size.
-    // 2. The address of the store is aligned to the emulated width boundary.
-    //
-    // For example, to store a vector<4xi2> to <13xi2> at offset 4, does not
-    // need unaligned emulation because the store address is aligned and the
-    // source is a whole byte.
-    bool emulationRequiresPartialStores =
-        !isAlignedEmulation || *foldedNumFrontPadElems != 0;
-    if (!emulationRequiresPartialStores) {
-      // Basic case: storing full bytes.
-      auto numElements = origElements / numSrcElemsPerDest;
-      auto bitCast = rewriter.create<vector::BitCastOp>(
-          loc, VectorType::get(numElements, containerElemTy),
-          op.getValueToStore());
-      rewriter.replaceOpWithNewOp<vector::StoreOp>(
-          op, bitCast.getResult(), memrefBase,
-          getValueOrCreateConstantIndexOp(rewriter, loc, linearizedIndices));
-      return success();
-    }
-
-    // Next, handle the case when sub-byte read-modify-write
+    // Handle the case when sub-byte read-modify-write
     // sequences are needed to emulate a vector store.
     // Here is an example:
     //
@@ -558,18 +530,57 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
     // need for atomicity). Stores to Bytes 0 and Byte 2 are "partial", hence
     // requiring RMW access (atomicity is required).
 
-    emitStaticCase(op, adaptor, rewriter, linearizedIndices, numSrcElemsPerDest,
-                   *foldedNumFrontPadElems);
+    if (foldedNumFrontPadElems) {
+      // Conditions when atomic RMWs are not needed:
+      // 1. The source vector size (in bits) is a multiple of byte size.
+      // 2. The address of the store is aligned to the emulated width boundary.
+      //
+      // For example, to store a vector<4xi2> to <13xi2> at offset 4, does not
+      // need unaligned emulation because the store address is aligned and the
+      // source is a whole byte.
+      bool emulationRequiresPartialStores =
+          !isAlignedEmulation || *foldedNumFrontPadElems != 0;
+      if (!emulationRequiresPartialStores) {
+        return emitNonPartialCase(op, adaptor, rewriter, linearizedIndices,
+                                  numSrcElemsPerDest);
+      }
+      return emitStaticCase(op, adaptor, rewriter, linearizedIndices,
+                            numSrcElemsPerDest, *foldedNumFrontPadElems);
+    }
 
-    rewriter.eraseOp(op);
+    // Handle dynamic case
+    return rewriter.notifyMatchFailure(
+        op, "subbyte store emulation: dynamic front padding size is "
+            "not yet implemented");
+  }
+
+  LogicalResult emitNonPartialCase(vector::StoreOp op, OpAdaptor adaptor,
+                                   ConversionPatternRewriter &rewriter,
+                                   OpFoldResult linearizedIndices,
+                                   int32_t numSrcElemsPerDest) const {
+    auto loc = op.getLoc();
+    auto valueToStore = cast<VectorValue>(op.getValueToStore());
+    auto origElements = valueToStore.getType().getNumElements();
+    auto memrefBase = cast<MemRefValue>(adaptor.getBase());
+    auto containerElemTy =
+        cast<MemRefType>(adaptor.getBase().getType()).getElementType();
+
+    // Basic case: storing full bytes.
+    auto numElements = origElements / numSrcElemsPerDest;
+    auto bitCast = rewriter.create<vector::BitCastOp>(
+        loc, VectorType::get(numElements, containerElemTy),
+        op.getValueToStore());
+    rewriter.replaceOpWithNewOp<vector::StoreOp>(
+        op, bitCast.getResult(), memrefBase,
+        getValueOrCreateConstantIndexOp(rewriter, loc, linearizedIndices));
     return success();
   }
 
-  void emitStaticCase(vector::StoreOp op, OpAdaptor adaptor,
-                      ConversionPatternRewriter &rewriter,
-                      OpFoldResult linearizedIndices,
-                      int32_t numSrcElemsPerDest, int32_t numFrontPadElems
-                      ) const {
+  LogicalResult emitStaticCase(vector::StoreOp op, OpAdaptor adaptor,
+                               ConversionPatternRewriter &rewriter,
+                               OpFoldResult linearizedIndices,
+                               int32_t numSrcElemsPerDest,
+                               int32_t numFrontPadElems) const {
     auto loc = op.getLoc();
     auto valueToStore = cast<VectorValue>(op.getValueToStore());
     auto origElements = valueToStore.getType().getNumElements();
@@ -596,8 +607,8 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
     if (frontSubWidthStoreElem > 0) {
       SmallVector<bool> frontMaskValues(numSrcElemsPerDest, false);
       if (numFrontPadElems + origElements < numSrcElemsPerDest) {
-        std::fill_n(frontMaskValues.begin() + numFrontPadElems,
-                    origElements, true);
+        std::fill_n(frontMaskValues.begin() + numFrontPadElems, origElements,
+                    true);
         frontSubWidthStoreElem = origElements;
       } else {
         std::fill_n(frontMaskValues.end() - frontSubWidthStoreElem,
@@ -616,7 +627,8 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
     }
 
     if (currentSourceIndex >= origElements) {
-      return;
+      rewriter.eraseOp(op);
+      return success();
     }
 
     // Increment the destination index by 1 to align to the emulated width
@@ -669,6 +681,9 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
       storeFunc(rewriter, loc, memrefBase, currentDestIndex,
                 cast<VectorValue>(subWidthStorePart), backMask.getResult());
     }
+
+    rewriter.eraseOp(op);
+    return success();
   }
 
 private:

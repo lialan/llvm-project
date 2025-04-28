@@ -551,6 +551,12 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
       : OpConversionPattern<vector::StoreOp>(context),
         disableAtomicRMW(disableAtomicRMW) {}
 
+  void emitStoreToDynamicMemref(
+      ConversionPatternRewriter &rewriter, Location loc,
+      VectorValue valueToStore, MemRefValue memrefBase,
+      OpFoldResult linearizedIndices) {
+  }
+
   LogicalResult
   matchAndRewrite(vector::StoreOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
@@ -598,8 +604,8 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
     // FIXME: There's no way to tell for dynamic shapes, so we should bail out.
     // However, that makes some tests fail, so we need to audit first.
     auto trailingDim = op.getBase().getType().getShape().back();
-    bool trailingDimsMatch =
-        ShapedType::isDynamic(trailingDim) || trailingDim == origElements;
+    bool storeToDynamicMemref = ShapedType::isDynamic(trailingDim);
+    bool trailingDimsMatch = trailingDim == origElements;
 
     auto stridedMetadata =
         rewriter.create<memref::ExtractStridedMetadataOp>(loc, op.getBase());
@@ -621,13 +627,14 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
             ? 0
             : getConstantIntValue(linearizedInfo.intraDataOffset);
 
-    if (!foldedNumFrontPadElems) {
-      return rewriter.notifyMatchFailure(
-          op, "subbyte store emulation: dynamic front padding size is "
-              "not yet implemented");
-    }
-
     auto memrefBase = cast<MemRefValue>(adaptor.getBase());
+
+    if (storeToDynamicMemref) {
+      emitStoreToDynamicMemref(rewriter, loc, valueToStore, memrefBase,
+                               linearizedIndices);
+      rewriter.eraseOp(op);
+      return success();
+    }
 
     // RMWs are not needed when:
     //  * no _partial_ stores are required.
@@ -659,7 +666,7 @@ struct ConvertVectorStore final : OpConversionPattern<vector::StoreOp> {
     //
     // TODO: Take linearizedInfo.linearizedOffset into account. This is
     // currently not needed/used/exercised as all our tests set offset to 0.
-    bool emulationRequiresPartialStores = *foldedNumFrontPadElems != 0;
+    bool emulationRequiresPartialStores = (*foldedNumFrontPadElems != 0);
 
     if (!emulationRequiresPartialStores) {
       // Basic case: storing full bytes.

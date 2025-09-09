@@ -329,10 +329,6 @@ struct MemRefSubViewRewritePattern : public OpRewritePattern<memref::SubViewOp> 
     Value sourceMemref = op.getSource();
     auto sourceType = cast<MemRefType>(sourceMemref.getType());
     
-    // Only handle 1D memrefs (they don't need flattening, but we still transform them)
-    if (sourceType.getRank() != 1)
-      return failure();
-    
     // Get static offsets, sizes, and strides
     auto offsets = op.getStaticOffsets();
     auto sizes = op.getStaticSizes(); 
@@ -345,14 +341,13 @@ struct MemRefSubViewRewritePattern : public OpRewritePattern<memref::SubViewOp> 
       return rewriter.notifyMatchFailure(
           op, "only static offsets, sizes, and strides are supported");
     
-    // Check that all strides are 1 (unit strides)
+    // Check that all strides are 1
     if (llvm::any_of(strides, [](int64_t stride) { return stride != 1; }))
       return rewriter.notifyMatchFailure(
           op, "only unit strides are supported");
     
     Location loc = op->getLoc();
     
-    // For 1D memref, get the offset from the source
     int64_t sourceOffset;
     SmallVector<int64_t> sourceStrides;
     if (failed(sourceType.getStridesAndOffset(sourceStrides, sourceOffset)))
@@ -361,19 +356,16 @@ struct MemRefSubViewRewritePattern : public OpRewritePattern<memref::SubViewOp> 
     // Calculate the new offset: source offset + subview offset
     int64_t newOffset = sourceOffset + offsets[0];
     
-    // The size is simply the first size value for 1D
-    int64_t totalSize = sizes[0];
-    
     // Create the result type with explicit offset and stride
     auto resultMemRefType = MemRefType::get(
-        {totalSize}, sourceType.getElementType(),
+        {sizes[0]}, sourceType.getElementType(),
         StridedLayoutAttr::get(op.getContext(), newOffset, {1}));
     
     // Create a reinterpret_cast that represents the subview
     auto reinterpretCast = rewriter.create<memref::ReinterpretCastOp>(
         loc, resultMemRefType, sourceMemref,
         /*offset=*/rewriter.getIndexAttr(newOffset),
-        /*sizes=*/ArrayRef<OpFoldResult>{rewriter.getIndexAttr(totalSize)},
+        /*sizes=*/ArrayRef<OpFoldResult>{rewriter.getIndexAttr(sizes[0])},
         /*strides=*/ArrayRef<OpFoldResult>{rewriter.getIndexAttr(1)});
     
     rewriter.replaceOp(op, reinterpretCast);

@@ -269,6 +269,158 @@ struct FlattenMemrefsPass
   }
 };
 
+// Specialized pattern for memref::CopyOp since it needs to handle both source and destination
+struct MemRefCopyRewritePattern : public OpRewritePattern<memref::CopyOp> {
+  using OpRewritePattern<memref::CopyOp>::OpRewritePattern;
+  
+  LogicalResult matchAndRewrite(memref::CopyOp op,
+                                PatternRewriter &rewriter) const override {
+    Value srcMemref = op.getSource();
+    Value dstMemref = op.getTarget();
+
+    // Verify that source and target have the same shape
+    auto srcType = cast<MemRefType>(srcMemref.getType());
+    auto dstType = cast<MemRefType>(dstMemref.getType());
+    
+    // Check that shapes are compatible (same rank and dimensions)
+    if (srcType.getShape() != dstType.getShape()) {
+      return rewriter.notifyMatchFailure(
+          op, "source and target memrefs must have the same shape");
+    }
+    
+    // Check if either source or destination needs flattening
+    bool srcNeedsFlattening = needFlattening(srcMemref) && checkLayout(srcMemref);
+    bool dstNeedsFlattening = needFlattening(dstMemref) && checkLayout(dstMemref);
+    
+    if (!srcNeedsFlattening && !dstNeedsFlattening)
+      return failure();
+    
+    Location loc = op->getLoc();
+    
+    // Flatten source if needed
+    Value flatSrcMemref = srcMemref;
+    if (srcNeedsFlattening) {
+      auto srcFlat = getFlattenMemrefAndOffset(rewriter, loc, srcMemref, ValueRange{});
+      flatSrcMemref = srcFlat.first;
+    }
+    
+    // Flatten destination if needed
+    Value flatDstMemref = dstMemref;
+    if (dstNeedsFlattening) {
+      auto dstFlat = getFlattenMemrefAndOffset(rewriter, loc, dstMemref, ValueRange{});
+      flatDstMemref = dstFlat.first;
+    }
+    
+    // Create new copy operation with flattened memrefs
+    auto newCopy = memref::CopyOp::create(rewriter, loc, flatSrcMemref, flatDstMemref);
+    rewriter.replaceOp(op, newCopy);
+    return success();
+  }
+};
+
+// Specialized pattern for memref::SubViewOp 
+// Rewrites a subview into a reinterpret_cast by adding the subview offset to the memref offset
+struct MemRefSubViewRewritePattern : public OpRewritePattern<memref::SubViewOp> {
+  using OpRewritePattern<memref::SubViewOp>::OpRewritePattern;
+  
+  LogicalResult matchAndRewrite(memref::SubViewOp op,
+                                PatternRewriter &rewriter) const override {
+    Value sourceMemref = op.getSource();
+    Value resultMemref = op.getResult();
+    
+    // Check if either source or result needs flattening  
+    if (!needFlattening(sourceMemref) && !needFlattening(resultMemref))
+      return failure();
+      
+    // Check layout compatibility
+    if (!checkLayout(sourceMemref))
+      return failure();
+    
+    // Get static offsets, sizes, and strides
+    auto offsets = op.getStaticOffsets();
+    auto sizes = op.getStaticSizes(); 
+    auto strides = op.getStaticStrides();
+    
+    // Check that all offsets, sizes, and strides are static
+    if (llvm::any_of(offsets, [](int64_t val) { return ShapedType::isDynamic(val); }) ||
+        llvm::any_of(sizes, [](int64_t val) { return ShapedType::isDynamic(val); }) ||
+        llvm::any_of(strides, [](int64_t val) { return ShapedType::isDynamic(val); }))
+      return rewriter.notifyMatchFailure(
+          op, "only static offsets, sizes, and strides are supported");
+    
+    // Check that all strides are 1 (unit strides)
+    if (llvm::any_of(strides, [](int64_t stride) { return stride != 1; }))
+      return rewriter.notifyMatchFailure(
+          op, "only unit strides are supported");
+    
+    Location loc = op->getLoc();
+    auto sourceType = cast<MemRefType>(sourceMemref.getType());
+    
+    // Flatten the source memref
+    auto [flatMemref, flatOffset] = getFlattenMemrefAndOffset(
+        rewriter, loc, sourceMemref, ValueRange{});
+    
+    // Calculate the linearized offset for the subview
+    // This computes the flat index for the subview's starting position
+    SmallVector<Value> offsetValues;
+    for (int64_t offset : offsets) {
+      offsetValues.push_back(rewriter.create<arith::ConstantIndexOp>(loc, offset));
+    }
+    
+    // Get the linearized offset for the subview start position
+    auto [subviewFlatMemref, subviewOffset] = getFlattenMemrefAndOffset(
+        rewriter, loc, sourceMemref, offsetValues);
+    
+    // Calculate the total size of the subview (product of all dimensions)
+    int64_t totalSize = 1;
+    for (int64_t size : sizes) {
+      totalSize *= size;
+    }
+    
+    // Create the reinterpret_cast with the computed offset and size
+    auto resultType = op.getResult().getType();
+    auto flattenedResultType = MemRefType::get(
+        {totalSize}, sourceType.getElementType(),
+        StridedLayoutAttr::get(op.getContext(), ShapedType::kDynamic, {1}));
+    
+    // The new offset is the subview's linearized offset
+    auto reinterpretCast = rewriter.create<memref::ReinterpretCastOp>(
+        loc, flattenedResultType, flatMemref,
+        /*offset=*/subviewOffset,
+        /*sizes=*/ArrayRef<OpFoldResult>{rewriter.getIndexAttr(totalSize)},
+        /*strides=*/ArrayRef<OpFoldResult>{rewriter.getIndexAttr(1)});
+    
+    // If the original result type was multi-dimensional, cast back to preserve type
+    if (cast<MemRefType>(resultType).getRank() > 1) {
+      // Create a reinterpret cast back to the original shape
+      SmallVector<OpFoldResult> resultSizes;
+      for (int64_t size : sizes) {
+        resultSizes.push_back(rewriter.getIndexAttr(size));
+      }
+      SmallVector<OpFoldResult> resultStrides(sizes.size(), rewriter.getIndexAttr(1));
+      // Calculate strides for row-major layout
+      for (int i = resultStrides.size() - 2; i >= 0; --i) {
+        int64_t strideVal = sizes[i + 1];
+        for (size_t j = i + 2; j < sizes.size(); ++j) {
+          strideVal *= sizes[j];
+        }
+        resultStrides[i] = rewriter.getIndexAttr(strideVal);
+      }
+      
+      auto finalCast = rewriter.create<memref::ReinterpretCastOp>(
+          loc, resultType, reinterpretCast,
+          /*offset=*/rewriter.getIndexAttr(0),
+          /*sizes=*/resultSizes,
+          /*strides=*/resultStrides);
+      rewriter.replaceOp(op, finalCast);
+    } else {
+      rewriter.replaceOp(op, reinterpretCast);
+    }
+    
+    return success();
+  }
+};
+
 } // namespace
 
 void memref::populateFlattenMemrefsPatterns(RewritePatternSet &patterns) {
@@ -276,6 +428,8 @@ void memref::populateFlattenMemrefsPatterns(RewritePatternSet &patterns) {
                   MemRefRewritePattern<memref::StoreOp>,
                   MemRefRewritePattern<memref::AllocOp>,
                   MemRefRewritePattern<memref::AllocaOp>,
+                  MemRefCopyRewritePattern,
+                  MemRefSubViewRewritePattern,
                   MemRefRewritePattern<vector::LoadOp>,
                   MemRefRewritePattern<vector::StoreOp>,
                   MemRefRewritePattern<vector::TransferReadOp>,

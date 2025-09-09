@@ -298,3 +298,34 @@ func.func @load_scalar_from_memref_static_dim_col_major(%input: memref<4x8xf32, 
 // CHECK: %[[IDX:.*]] = affine.apply #[[MAP]]()[%[[ARG2]], %[[ARG1]]]
 // CHECK: %[[REINT:.*]] = memref.reinterpret_cast %[[ARG0]] to offset: [100], sizes: [32], strides: [1] : memref<4x8xf32, strided<[1, 4], offset: 100>> to memref<32xf32, strided<[1], offset: 100>>
 // CHECK: memref.load %[[REINT]][%[[IDX]]] : memref<32xf32, strided<[1], offset: 100>>
+
+// -----
+
+func.func @copy_memref_static(%src: memref<4x8xf32>, %dst: memref<4x8xf32>) {
+  memref.copy %src, %dst : memref<4x8xf32> to memref<4x8xf32>
+  return
+}
+
+// CHECK-LABEL: func @copy_memref_static
+// CHECK-SAME: (%[[SRC:.*]]: memref<4x8xf32>, %[[DST:.*]]: memref<4x8xf32>)
+// CHECK: %[[SRC_REINT:.*]] = memref.reinterpret_cast %[[SRC]] to offset: [0], sizes: [32], strides: [1] : memref<4x8xf32> to memref<32xf32, strided<[1]>>
+// CHECK: %[[DST_REINT:.*]] = memref.reinterpret_cast %[[DST]] to offset: [0], sizes: [32], strides: [1] : memref<4x8xf32> to memref<32xf32, strided<[1]>>
+// CHECK: memref.copy %[[SRC_REINT]], %[[DST_REINT]] : memref<32xf32, strided<[1]>> to memref<32xf32, strided<[1]>>
+
+// -----
+
+func.func @subview_with_load(%input: memref<4x8xf32>) -> f32 {
+  %0 = memref.subview %input[1, 2] [2, 4] [1, 1] : memref<4x8xf32> to memref<2x4xf32, strided<[8, 1], offset: 10>>
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %val = memref.load %0[%c0, %c1] : memref<2x4xf32, strided<[8, 1], offset: 10>>
+  return %val : f32
+}
+
+// CHECK-LABEL: func @subview_with_load
+// CHECK-SAME: (%[[INPUT:.*]]: memref<4x8xf32>)
+// CHECK: %[[C1:.*]] = arith.constant 1 : index
+// CHECK: %[[SUBVIEW:.*]] = memref.subview %[[INPUT]][1, 2] [2, 4] [1, 1] : memref<4x8xf32> to memref<2x4xf32, strided<[8, 1], offset: 10>>
+// CHECK: %[[FLAT_SUBVIEW:.*]] = memref.reinterpret_cast %[[SUBVIEW]] to offset: [10], sizes: [16], strides: [1] : memref<2x4xf32, strided<[8, 1], offset: 10>> to memref<16xf32, strided<[1], offset: 10>>
+// CHECK: %[[VAL:.*]] = memref.load %[[FLAT_SUBVIEW]][%[[C1]]] : memref<16xf32, strided<[1], offset: 10>>
+// CHECK: return %[[VAL]]

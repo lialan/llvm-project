@@ -314,18 +314,15 @@ func.func @copy_memref_static(%src: memref<4x8xf32>, %dst: memref<4x8xf32>) {
 
 // -----
 
-func.func @subview_with_load(%input: memref<4x8xf32>) -> f32 {
-  %0 = memref.subview %input[1, 2] [2, 4] [1, 1] : memref<4x8xf32> to memref<2x4xf32, strided<[8, 1], offset: 10>>
-  %c0 = arith.constant 0 : index
-  %c1 = arith.constant 1 : index
-  %val = memref.load %0[%c0, %c1] : memref<2x4xf32, strided<[8, 1], offset: 10>>
-  return %val : f32
+func.func @subview_flatten(%input: memref<64xf32>) -> memref<8xf32, strided<[1], offset: 10>> {
+  %0 = memref.subview %input[10] [8] [1] : memref<64xf32> to memref<8xf32, strided<[1], offset: 10>>
+  return %0 : memref<8xf32, strided<[1], offset: 10>>
 }
 
-// CHECK-LABEL: func @subview_with_load
-// CHECK-SAME: (%[[INPUT:.*]]: memref<4x8xf32>)
-// CHECK: %[[C1:.*]] = arith.constant 1 : index
-// CHECK: %[[SUBVIEW:.*]] = memref.subview %[[INPUT]][1, 2] [2, 4] [1, 1] : memref<4x8xf32> to memref<2x4xf32, strided<[8, 1], offset: 10>>
-// CHECK: %[[FLAT_SUBVIEW:.*]] = memref.reinterpret_cast %[[SUBVIEW]] to offset: [10], sizes: [16], strides: [1] : memref<2x4xf32, strided<[8, 1], offset: 10>> to memref<16xf32, strided<[1], offset: 10>>
-// CHECK: %[[VAL:.*]] = memref.load %[[FLAT_SUBVIEW]][%[[C1]]] : memref<16xf32, strided<[1], offset: 10>>
-// CHECK: return %[[VAL]]
+// CHECK-LABEL: func @subview_flatten
+// CHECK-SAME: (%[[INPUT:.*]]: memref<64xf32>)
+// CHECK-NOT: memref.subview
+// CHECK: %[[C10:.*]] = arith.constant 10 : index
+// CHECK: %[[FLAT_INPUT:.*]] = memref.reinterpret_cast %[[INPUT]] to offset: [0], sizes: [64], strides: [1] : memref<64xf32> to memref<64xf32, strided<[1]>>
+// CHECK: %[[RESULT:.*]] = memref.reinterpret_cast %[[FLAT_INPUT]] to offset: [%[[C10]]], sizes: [8], strides: [1] : memref<64xf32, strided<[1]>> to memref<8xf32, strided<[1], offset: ?>>
+// CHECK: return %[[RESULT]]

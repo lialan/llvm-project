@@ -25,8 +25,11 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Support/InterfaceSupport.h"
 #include "llvm/ADT/BitmaskEnum.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
+#include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/PointerLikeTypeTraits.h"
 #include "llvm/Support/TrailingObjects.h"
@@ -42,6 +45,7 @@ class Dialect;
 class DictionaryAttr;
 class ElementsAttr;
 struct EmptyProperties;
+class IRMapping;
 class MutableOperandRangeRange;
 class NamedAttrList;
 class Operation;
@@ -1418,6 +1422,78 @@ struct OperationEquivalence {
   static LogicalResult exactValueMatch(Value lhs, Value rhs) {
     return success(lhs == rhs);
   }
+
+  //===--------------------------------------------------------------------===//
+  // Structural equivalence
+  //===--------------------------------------------------------------------===//
+
+  /// Cache used by `isStructurallyEquivalentTo` to memoize operation, block,
+  /// and region metadata across repeated queries. Callers must not mutate any
+  /// IR that may be referenced by the cache between queries.
+  class StructuralCache {
+  public:
+    explicit StructuralCache(MLIRContext *context);
+    ~StructuralCache();
+
+    StructuralCache(const StructuralCache &) = delete;
+    StructuralCache &operator=(const StructuralCache &) = delete;
+
+    /// Returns true if `name` is one of the well-known symbol-reference
+    /// attribute names whose values may differ between structurally equivalent
+    /// operations (e.g. `function_ref` or `sym_name`).
+    bool isSymbolAttrName(StringAttr name) const;
+
+    using IRMappingPtr =
+        std::unique_ptr<IRMapping, std::function<void(IRMapping *)>>;
+
+    /// Acquires an IRMapping from an internal pool. The returned handle clears
+    /// the mapping and returns it to the pool on destruction.
+    IRMappingPtr acquireMapping();
+
+    struct RegionEntry {
+      llvm::SetVector<Block *> blocks;
+    };
+    RegionEntry &getRegion(Region *region);
+
+    struct BlockEntry {
+      unsigned count = 0;
+    };
+    BlockEntry &getBlock(Block *block);
+
+    struct OperationEntry {
+      NamedAttrList attrs;
+    };
+    OperationEntry &getOp(Operation *op);
+
+  private:
+    StringAttr functionRefName;
+    StringAttr symbolAttrName;
+    llvm::SmallVector<IRMapping *> mappingFreeList;
+    llvm::DenseMap<Region *, RegionEntry *> regions;
+    llvm::DenseMap<Block *, BlockEntry *> blocks;
+    llvm::DenseMap<Operation *, OperationEntry *> ops;
+  };
+
+  /// Recursively compares two operations for structural equivalence.
+  ///
+  /// Structural equivalence ensures that operations in the regions of both
+  /// |lhs| and |rhs| have the same attributes and the same use-def structure.
+  /// Symbol-reference attribute values (e.g. `function_ref`, `sym_name`) are
+  /// ignored.
+  static bool isStructurallyEquivalentTo(Operation &lhs, Operation &rhs);
+
+  /// Recursively compares two regions for structural equivalence. See
+  /// `isStructurallyEquivalentTo(Operation&, Operation&)` for the semantics.
+  static bool isStructurallyEquivalentTo(Region &lhs, Region &rhs);
+
+  /// Cached overloads. Pass a `StructuralCache` to memoize metadata across
+  /// repeated queries over the same IR.
+  static bool isStructurallyEquivalentTo(StructuralCache &cache, Operation &lhs,
+                                         Operation &rhs);
+  static bool isStructurallyEquivalentTo(StructuralCache &cache, Region &lhs,
+                                         Region &rhs);
+  static bool isStructurallyEquivalentTo(StructuralCache &cache, Region &lhs,
+                                         Region &rhs, IRMapping &mapping);
 };
 
 /// Enable Bitmask enums for OperationEquivalence::Flags.

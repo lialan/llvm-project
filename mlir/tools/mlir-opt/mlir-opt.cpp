@@ -57,6 +57,7 @@ void registerTestGpuMemoryPromotionPass();
 void registerTestLoopPermutationPass();
 void registerTestMatchers();
 void registerTestOperationEqualPass();
+void registerTestStructuralEquivalencePass();
 void registerTestPreserveUseListOrders();
 void registerTestPrintDefUsePass();
 void registerTestPrintInvalidPass();
@@ -207,6 +208,7 @@ static void registerTestPasses() {
   registerTestLoopPermutationPass();
   registerTestMatchers();
   registerTestOperationEqualPass();
+  registerTestStructuralEquivalencePass();
   registerTestPreserveUseListOrders();
   registerTestPrintDefUsePass();
   registerTestPrintInvalidPass();

@@ -222,6 +222,14 @@ bool GISelValueTracking::isKnownNeverZero(Register R, const APInt &DemandedElts,
            isKnownNeverZero(RHS, DemandedElts, Depth + 1);
   }
 
+  case TargetOpcode::G_ADD:
+    if (MI.getFlag(MachineInstr::NoUWrap))
+      return isKnownNeverZero(MI.getOperand(1).getReg(), DemandedElts,
+                              Depth + 1) ||
+             isKnownNeverZero(MI.getOperand(2).getReg(), DemandedElts,
+                              Depth + 1);
+    break;
+
   case TargetOpcode::G_SELECT:
     return isKnownNeverZero(MI.getOperand(2).getReg(), DemandedElts,
                             Depth + 1) &&

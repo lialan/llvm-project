@@ -233,6 +233,9 @@ bool GISelValueTracking::isKnownNeverZero(Register R, const APInt &DemandedElts,
   case TargetOpcode::G_ROTL:
     return isKnownNeverZero(MI.getOperand(1).getReg(), DemandedElts, Depth + 1);
 
+  case TargetOpcode::G_ROTR:
+    return isKnownNeverZero(MI.getOperand(1).getReg(), DemandedElts, Depth + 1);
+
   case TargetOpcode::G_SELECT:
     return isKnownNeverZero(MI.getOperand(2).getReg(), DemandedElts,
                             Depth + 1) &&

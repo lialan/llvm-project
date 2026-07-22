@@ -155,6 +155,34 @@ bool GISelValueTracking::isKnownNeverZero(Register R, const APInt &DemandedElts,
     return isKnownNeverZero(InVec, DemandedSrcElts, Depth + 1);
   }
 
+  case TargetOpcode::G_INSERT_VECTOR_ELT: {
+    GInsertVectorElement &Insert = cast<GInsertVectorElement>(MI);
+    Register InVec = Insert.getVectorReg();
+    LLT VecTy = MRI.getType(InVec);
+    if (!VecTy.isFixedVector() || MRI.getType(R) != VecTy ||
+        MRI.getType(Insert.getElementReg()).getScalarSizeInBits() !=
+            VecTy.getScalarSizeInBits())
+      break;
+
+    auto Idx = getIConstantVRegVal(Insert.getIndexReg(), MRI);
+    if (Idx && !Idx->ult(VecTy.getNumElements()))
+      break;
+
+    APInt DemandedSrcElts = DemandedElts;
+    bool DemandsInsertedElt = true;
+    if (Idx) {
+      unsigned IdxVal = Idx->getZExtValue();
+      DemandsInsertedElt = DemandedElts[IdxVal];
+      DemandedSrcElts.clearBit(IdxVal);
+    }
+
+    if (DemandsInsertedElt && !isKnownNeverZero(Insert.getElementReg(),
+                                                ScalarDemandedElts, Depth + 1))
+      return false;
+    return !DemandedSrcElts ||
+           isKnownNeverZero(InVec, DemandedSrcElts, Depth + 1);
+  }
+
   case TargetOpcode::G_SHUFFLE_VECTOR: {
     GShuffleVector &Shuf = cast<GShuffleVector>(MI);
     LLT SrcTy = MRI.getType(Shuf.getSrc1Reg());

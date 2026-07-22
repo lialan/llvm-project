@@ -211,6 +211,16 @@ bool GISelValueTracking::isKnownNeverZero(Register R, const APInt &DemandedElts,
                             Depth + 1) ||
            isKnownNeverZero(MI.getOperand(2).getReg(), DemandedElts, Depth + 1);
 
+  case TargetOpcode::G_SMAX: {
+    Register LHS = MI.getOperand(1).getReg();
+    Register RHS = MI.getOperand(2).getReg();
+    if (getKnownBits(LHS, DemandedElts, Depth + 1).isStrictlyPositive() ||
+        getKnownBits(RHS, DemandedElts, Depth + 1).isStrictlyPositive())
+      return true;
+    return isKnownNeverZero(LHS, DemandedElts, Depth + 1) &&
+           isKnownNeverZero(RHS, DemandedElts, Depth + 1);
+  }
+
   case TargetOpcode::G_SELECT:
     return isKnownNeverZero(MI.getOperand(2).getReg(), DemandedElts,
                             Depth + 1) &&

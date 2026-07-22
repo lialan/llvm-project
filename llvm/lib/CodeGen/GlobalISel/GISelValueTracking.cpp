@@ -264,6 +264,22 @@ bool GISelValueTracking::isKnownNeverZero(Register R, const APInt &DemandedElts,
     break;
   }
 
+  case TargetOpcode::G_ASHR: {
+    Register LHS = MI.getOperand(1).getReg();
+    if (MI.getFlag(MachineInstr::MIFlag::IsExact))
+      return isKnownNeverZero(LHS, DemandedElts, Depth + 1);
+    KnownBits ValKnown = getKnownBits(LHS, DemandedElts, Depth + 1);
+    if (ValKnown.isNegative())
+      return true;
+    APInt MaxCnt =
+        getKnownBits(MI.getOperand(2).getReg(), DemandedElts, Depth + 1)
+            .getMaxValue();
+    if (MaxCnt.ult(ValKnown.getBitWidth()) &&
+        !ValKnown.One.lshr(MaxCnt).isZero())
+      return true;
+    break;
+  }
+
   case TargetOpcode::G_SELECT:
     return isKnownNeverZero(MI.getOperand(2).getReg(), DemandedElts,
                             Depth + 1) &&

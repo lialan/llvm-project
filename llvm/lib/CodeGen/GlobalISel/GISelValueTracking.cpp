@@ -239,6 +239,17 @@ bool GISelValueTracking::isKnownNeverZero(Register R, const APInt &DemandedElts,
   case TargetOpcode::G_CTPOP:
     return isKnownNeverZero(MI.getOperand(1).getReg(), DemandedElts, Depth + 1);
 
+  case TargetOpcode::G_PHI: {
+    GPhi &Phi = cast<GPhi>(MI);
+    if (Phi.getNumIncomingValues() == 0)
+      break;
+    for (unsigned I = 0; I != Phi.getNumIncomingValues(); ++I) {
+      if (!isKnownNeverZero(Phi.getIncomingValue(I), DemandedElts, Depth + 1))
+        return false;
+    }
+    return true;
+  }
+
   case TargetOpcode::G_SELECT:
     return isKnownNeverZero(MI.getOperand(2).getReg(), DemandedElts,
                             Depth + 1) &&

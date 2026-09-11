@@ -14,8 +14,10 @@
 
 #include "llvm/Transforms/Vectorize/VectorCombine.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/ADT/Statistic.h"
@@ -32,8 +34,10 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/NoFolder.h"
 #include "llvm/IR/PatternMatch.h"
 #include "llvm/IR/ProfDataUtils.h"
+#include "llvm/IR/ValueHandle.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/KnownBits.h"
 #include "llvm/Support/MathExtras.h"
@@ -74,12 +78,113 @@ static cl::opt<unsigned> MaxInstrsToScan(
 static const unsigned InvalidIndex = std::numeric_limits<unsigned>::max();
 
 namespace {
+
+static constexpr unsigned MaxSiblingTreeDepth = 16;
+static constexpr unsigned MaxSiblingTreeChunks = 16;
+static constexpr unsigned MaxSiblingTreeFolds = 32;
+
+struct ContiguousSliceInfo {
+  Value *Source = nullptr;
+  unsigned Offset = 0;
+  unsigned NarrowElts = 0;
+  unsigned WideElts = 0;
+};
+
+/// Match a contiguous extract-subvector shuffle from a wider fixed vector.
+static std::optional<ContiguousSliceInfo> getContiguousSlice(Value *V) {
+  auto *Shuffle = dyn_cast<ShuffleVectorInst>(V);
+  if (!Shuffle || !isa<PoisonValue>(Shuffle->getOperand(1)))
+    return std::nullopt;
+
+  auto *NarrowTy = dyn_cast<FixedVectorType>(Shuffle->getType());
+  auto *WideTy = dyn_cast<FixedVectorType>(Shuffle->getOperand(0)->getType());
+  int Offset;
+  if (!NarrowTy || !WideTy ||
+      NarrowTy->getElementType() != WideTy->getElementType() ||
+      !Shuffle->isExtractSubvectorMask(Offset))
+    return std::nullopt;
+
+  ArrayRef<int> Mask = Shuffle->getShuffleMask();
+  // isExtractSubvectorMask also accepts poison mask elements and extracts from
+  // operand 1. Require an all-defined extract from operand 0.
+  if (is_contained(Mask, PoisonMaskElem) || Mask.front() != Offset)
+    return std::nullopt;
+
+  return ContiguousSliceInfo{Shuffle->getOperand(0), unsigned(Offset),
+                             NarrowTy->getNumElements(),
+                             WideTy->getNumElements()};
+}
+
+/// Find an operand path from an elementwise vector operation to a contiguous
+/// slice. The tree builder separately requires one use before widening an
+/// internal operation; multi-use operations remain opaque concatenated leaves.
+static bool findContiguousSlicePath(Value *V, BasicBlock &BB,
+                                    SmallVectorImpl<unsigned> &Path,
+                                    ContiguousSliceInfo &Result,
+                                    SmallPtrSetImpl<Value *> &Visited,
+                                    unsigned &NumVisited, unsigned MaxVisited,
+                                    unsigned Depth = 0) {
+  if (Depth > MaxSiblingTreeDepth || !Visited.insert(V).second ||
+      ++NumVisited > MaxVisited)
+    return false;
+  if (auto Slice = getContiguousSlice(V)) {
+    Result = *Slice;
+    return true;
+  }
+
+  auto *I = dyn_cast<Instruction>(V);
+  if (!I || (!isa<BinaryOperator>(I) && !isa<SelectInst>(I)) ||
+      I->getParent() != &BB)
+    return false;
+
+  for (unsigned OpNo = 0, End = I->getNumOperands(); OpNo != End; ++OpNo) {
+    Path.push_back(OpNo);
+    if (findContiguousSlicePath(I->getOperand(OpNo), BB, Path, Result, Visited,
+                                NumVisited, MaxVisited, Depth + 1))
+      return true;
+    Path.pop_back();
+  }
+  return false;
+}
+
+struct SiblingTreeKey {
+  Value *Source = nullptr;
+  Type *RootTy = nullptr;
+  unsigned Opcode = 0;
+  unsigned NarrowElts = 0;
+  unsigned WideElts = 0;
+  SmallVector<unsigned, 4> SlicePath;
+
+  bool operator==(const SiblingTreeKey &Other) const {
+    return Source == Other.Source && RootTy == Other.RootTy &&
+           Opcode == Other.Opcode && NarrowElts == Other.NarrowElts &&
+           WideElts == Other.WideElts && SlicePath == Other.SlicePath;
+  }
+};
+
+struct SiblingTreeKeyInfo {
+  static unsigned getHashValue(const SiblingTreeKey &Key) {
+    return hash_combine(
+        Key.Source, Key.RootTy, Key.Opcode, Key.NarrowElts, Key.WideElts,
+        hash_combine_range(Key.SlicePath.begin(), Key.SlicePath.end()));
+  }
+
+  static bool isEqual(const SiblingTreeKey &LHS, const SiblingTreeKey &RHS) {
+    return LHS == RHS;
+  }
+};
+
+struct SiblingTreeCandidate {
+  Instruction *Root = nullptr;
+  unsigned Offset = 0;
+  SiblingTreeKey Key;
+};
+
 class VectorCombine {
 public:
-  VectorCombine(Function &F, const TargetTransformInfo &TTI,
-                const DominatorTree &DT, AAResults &AA, AssumptionCache &AC,
-                const DataLayout *DL, TTI::TargetCostKind CostKind,
-                bool TryEarlyFoldsOnly)
+  VectorCombine(Function &F, const TargetTransformInfo &TTI, DominatorTree &DT,
+                AAResults &AA, AssumptionCache &AC, const DataLayout *DL,
+                TTI::TargetCostKind CostKind, bool TryEarlyFoldsOnly)
       : F(F), Builder(F.getContext(), InstSimplifyFolder(*DL)), TTI(TTI),
         DT(DT), AA(AA), DL(DL), CostKind(CostKind),
         SQ(*DL, /*TLI=*/nullptr, &DT, &AC),
@@ -91,7 +196,7 @@ private:
   Function &F;
   IRBuilder<InstSimplifyFolder> Builder;
   const TargetTransformInfo &TTI;
-  const DominatorTree &DT;
+  DominatorTree &DT;
   AAResults &AA;
   const DataLayout *DL;
   TTI::TargetCostKind CostKind;
@@ -105,7 +210,7 @@ private:
 
   /// Next instruction to iterate. It will be updated when it is erased by
   /// RecursivelyDeleteTriviallyDeadInstructions.
-  Instruction *NextInst;
+  Instruction *NextInst = nullptr;
 
   // TODO: Direct calls from the top-level "run" loop use a plain "Instruction"
   //       parameter. That should be updated to specific sub-classes because the
@@ -142,6 +247,9 @@ private:
   bool foldShuffleOfBinops(Instruction &I);
   bool foldShuffleOfSelects(Instruction &I);
   bool foldShuffleOfCastops(Instruction &I);
+  bool foldContiguousSiblingTree(ArrayRef<Instruction *> Roots,
+                                 unsigned NarrowElts, unsigned WideElts);
+  bool foldContiguousSiblingTrees(BasicBlock &BB);
   bool foldShuffleOfShuffles(Instruction &I);
   bool foldPermuteOfIntrinsic(Instruction &I);
   bool foldShufflesOfLengthChangingShuffles(Instruction &I);
@@ -2574,6 +2682,367 @@ bool VectorCombine::foldConcatOfBoolMasks(Instruction &I) {
 
   replaceValue(I, *Result);
   return true;
+}
+
+static Constant *concatConstants(ArrayRef<Value *> Chunks,
+                                 FixedVectorType *WideTy) {
+  SmallVector<Constant *> Elements;
+  Elements.reserve(WideTy->getNumElements());
+  for (Value *V : Chunks) {
+    auto *C = dyn_cast<Constant>(V);
+    auto *VT = dyn_cast<FixedVectorType>(V->getType());
+    if (!C || !VT || VT->getElementType() != WideTy->getElementType())
+      return nullptr;
+    for (unsigned I = 0, End = VT->getNumElements(); I != End; ++I) {
+      Constant *Element = C->getAggregateElement(I);
+      if (!Element)
+        return nullptr;
+      Elements.push_back(Element);
+    }
+  }
+  if (Elements.size() != WideTy->getNumElements())
+    return nullptr;
+  return ConstantVector::get(Elements);
+}
+
+using SiblingTreeBuilder = IRBuilder<NoFolder, IRBuilderCallbackInserter>;
+
+/// Recursively zipper corresponding narrow sibling trees into one wide tree.
+/// Unsupported leaves are concatenated without cloning their computations.
+static Value *buildWideSiblingTree(
+    ArrayRef<Value *> Chunks, BasicBlock &BB, unsigned NarrowElts,
+    unsigned WideElts, SiblingTreeBuilder &Builder,
+    SmallPtrSetImpl<Instruction *> &OldInstructions, uint64_t &NumVisited,
+    uint64_t MaxVisited, unsigned Depth = 0) {
+  if (Depth > MaxSiblingTreeDepth || Chunks.empty() ||
+      ++NumVisited > MaxVisited)
+    return nullptr;
+
+  if (auto FirstSlice = getContiguousSlice(Chunks.front())) {
+    for (auto [Index, V] : enumerate(Chunks)) {
+      auto Slice = getContiguousSlice(V);
+      if (!Slice || Slice->Source != FirstSlice->Source ||
+          Slice->NarrowElts != NarrowElts || Slice->WideElts != WideElts ||
+          Slice->Offset != Index * NarrowElts)
+        return nullptr;
+    }
+    for (Value *V : Chunks)
+      if (V->hasOneUse())
+        OldInstructions.insert(cast<Instruction>(V));
+    return FirstSlice->Source;
+  }
+
+  auto *NarrowTy = dyn_cast<FixedVectorType>(Chunks.front()->getType());
+  if (!NarrowTy || !all_of(Chunks, [NarrowTy](Value *V) {
+        return V->getType() == NarrowTy;
+      }))
+    return nullptr;
+  auto *WideTy = FixedVectorType::get(NarrowTy->getElementType(), WideElts);
+
+  if (isa<Constant>(Chunks.front()))
+    return concatConstants(Chunks, WideTy);
+
+  auto *FirstI = dyn_cast<Instruction>(Chunks.front());
+  if (!FirstI || FirstI->getParent() != &BB ||
+      (!isa<BinaryOperator>(FirstI) && !isa<SelectInst>(FirstI)) ||
+      !all_of(Chunks, [&](Value *V) {
+        auto *I = dyn_cast<Instruction>(V);
+        return I && I->getParent() == &BB && I->isSameOperationAs(FirstI) &&
+               (Depth == 0 || I->hasOneUse());
+      })) {
+    // Concat leaves have no single source location. Do not inherit the debug
+    // location left by a previously built sibling operation.
+    Builder.SetCurrentDebugLocation(DebugLoc());
+    return concatenateVectors(Builder, Chunks);
+  }
+
+  SmallVector<Value *> WideOperands;
+  WideOperands.reserve(FirstI->getNumOperands());
+  for (unsigned OpNo = 0, End = FirstI->getNumOperands(); OpNo != End; ++OpNo) {
+    SmallVector<Value *> OperandChunks;
+    OperandChunks.reserve(Chunks.size());
+    for (Value *Chunk : Chunks)
+      OperandChunks.push_back(cast<Instruction>(Chunk)->getOperand(OpNo));
+    Value *WideOperand = buildWideSiblingTree(
+        OperandChunks, BB, NarrowElts, WideElts, Builder, OldInstructions,
+        NumVisited, MaxVisited, Depth + 1);
+    if (!WideOperand)
+      return nullptr;
+    WideOperands.push_back(WideOperand);
+  }
+
+  Builder.SetCurrentDebugLocation(FirstI->getDebugLoc());
+  Instruction *NewI = nullptr;
+  if (auto *BO = dyn_cast<BinaryOperator>(FirstI))
+    NewI = cast<Instruction>(
+        Builder.CreateBinOp(BO->getOpcode(), WideOperands[0], WideOperands[1],
+                            BO->getName() + ".wide"));
+  else
+    NewI = cast<Instruction>(
+        Builder.CreateSelect(WideOperands[0], WideOperands[1], WideOperands[2],
+                             FirstI->getName() + ".wide"));
+
+  propagateIRFlags(NewI, Chunks);
+  propagateMetadata(NewI, Chunks);
+  for (Value *V : Chunks)
+    OldInstructions.insert(cast<Instruction>(V));
+  return NewI;
+}
+
+static void
+eraseCreatedInstructions(SmallVectorImpl<Instruction *> &CreatedInstructions) {
+  for (Instruction *I : reverse(CreatedInstructions)) {
+    assert(I->use_empty() && "new sibling-tree instruction still has uses");
+    I->eraseFromParent();
+  }
+}
+
+/// Return true if V's operand graph reaches a planned-to-be-removed
+/// instruction or exceeds the traversal budget. This prevents a retained
+/// multi-use leaf from becoming cyclic when the sibling roots are replaced.
+static bool
+mayDependOnOldInstruction(Value *V,
+                          const SmallPtrSetImpl<Instruction *> &OldInstructions,
+                          uint64_t MaxInstructions) {
+  SmallPtrSet<Value *, 32> Visited;
+  SmallVector<Value *> ToVisit(1, V);
+  uint64_t NumInstructions = 0;
+  while (!ToVisit.empty()) {
+    Value *Current = ToVisit.pop_back_val();
+    auto *I = dyn_cast<Instruction>(Current);
+    if (I && OldInstructions.contains(I))
+      return true;
+    if (!I || !Visited.insert(I).second)
+      continue;
+    if (++NumInstructions > MaxInstructions)
+      return true;
+    append_range(ToVisit, I->operand_values());
+  }
+  return false;
+}
+
+bool VectorCombine::foldContiguousSiblingTree(ArrayRef<Instruction *> Roots,
+                                              unsigned NarrowElts,
+                                              unsigned WideElts) {
+  assert(!Roots.empty() && "expected sibling roots");
+  BasicBlock *BB = Roots.front()->getParent();
+
+  Instruction *LatestRoot = Roots.front();
+  for (Instruction *Root : Roots) {
+    if (Root->getParent() != BB)
+      return false;
+    if (LatestRoot->comesBefore(Root))
+      LatestRoot = Root;
+  }
+  Instruction *InsertBefore = LatestRoot->getNextNode();
+  if (!InsertBefore)
+    return false;
+
+  SmallVector<Instruction *> CreatedInstructions;
+  llvm::scope_exit Cleanup(
+      [&] { eraseCreatedInstructions(CreatedInstructions); });
+  SiblingTreeBuilder LocalBuilder(
+      BB->getContext(), NoFolder(),
+      IRBuilderCallbackInserter(
+          [&](Instruction *I) { CreatedInstructions.push_back(I); }));
+  LocalBuilder.SetInsertPoint(InsertBefore);
+  SmallPtrSet<Instruction *, 32> OldInstructions;
+  SmallVector<Value *> RootValues(Roots.begin(), Roots.end());
+  uint64_t MaxTreeInstructions =
+      uint64_t(MaxInstrsToScan) * MaxSiblingTreeChunks * MaxSiblingTreeDepth;
+  uint64_t NumVisited = 0;
+  Value *WideRoot =
+      buildWideSiblingTree(RootValues, *BB, NarrowElts, WideElts, LocalBuilder,
+                           OldInstructions, NumVisited, MaxTreeInstructions);
+  if (!WideRoot)
+    return false;
+  SmallPtrSet<Instruction *, 32> CreatedInstructionSet(
+      CreatedInstructions.begin(), CreatedInstructions.end());
+
+  // The wide tree may retain unsupported or multi-use leaves. Do not allow
+  // one of those leaves to depend on a root that is about to be replaced.
+  if (mayDependOnOldInstruction(WideRoot, OldInstructions, MaxTreeInstructions))
+    return false;
+
+  // Do not sink the replacement tree across instructions that may establish a
+  // scheduling or side-effect boundary. In particular, target inline assembly
+  // is often deliberately used as a scheduling barrier even when it does not
+  // carry the sideeffect marker.
+  Instruction *EarliestOld = Roots.front();
+  for (Instruction *OldI : OldInstructions)
+    if (OldI->getParent() == BB && OldI->comesBefore(EarliestOld))
+      EarliestOld = OldI;
+  // Also bound both each gap and the total number of unrelated instructions
+  // crossed. Resetting the gap at old-tree instructions accommodates
+  // interleaved sibling trees, while the scaled total remains finite.
+  uint64_t MaxTotalIntervening = uint64_t(MaxInstrsToScan) * (Roots.size() + 2);
+  uint64_t TotalIntervening = 0;
+  unsigned NumIntervening = 0;
+  for (Instruction *Scan = EarliestOld->getNextNode(); Scan != InsertBefore;
+       Scan = Scan->getNextNode()) {
+    if (OldInstructions.contains(Scan)) {
+      NumIntervening = 0;
+      continue;
+    }
+    if (Scan->isDebugOrPseudoInst())
+      continue;
+    if (CreatedInstructionSet.contains(Scan))
+      continue;
+    if (++NumIntervening > MaxInstrsToScan ||
+        ++TotalIntervening > MaxTotalIntervening)
+      return false;
+    auto *Call = dyn_cast<CallBase>(Scan);
+    if (Scan->mayHaveSideEffects() ||
+        (Call && (Call->isInlineAsm() || Call->isConvergent())))
+      return false;
+  }
+
+  // The new computation is inserted after the latest root. Every old-tree use
+  // is replaced, but a surviving local use before that point would no longer
+  // be dominated by its replacement slice.
+  for (Instruction *Root : Roots) {
+    for (User *U : Root->users()) {
+      auto *UserI = dyn_cast<Instruction>(U);
+      if (!UserI || OldInstructions.contains(UserI) || UserI->getParent() != BB)
+        continue;
+      if (UserI->comesBefore(InsertBefore))
+        return false;
+    }
+  }
+
+  auto *WideTy = dyn_cast<FixedVectorType>(WideRoot->getType());
+  auto *NarrowTy = dyn_cast<FixedVectorType>(Roots.front()->getType());
+  if (!WideTy || !NarrowTy || WideTy->getNumElements() != WideElts)
+    return false;
+
+  SmallVector<Value *> Replacements;
+  Replacements.reserve(Roots.size());
+  for (auto [Index, Root] : enumerate(Roots)) {
+    LocalBuilder.SetCurrentDebugLocation(Root->getDebugLoc());
+    auto *Slice = cast<Instruction>(LocalBuilder.CreateShuffleVector(
+        WideRoot, PoisonValue::get(WideTy),
+        createSequentialMask(Index * NarrowElts, NarrowElts, 0),
+        "sibling.slice"));
+    Replacements.push_back(Slice);
+  }
+
+  InstructionCost OldCost = 0;
+  for (Instruction *I : OldInstructions)
+    OldCost += TTI.getInstructionCost(I, CostKind);
+  InstructionCost NewCost = 0;
+  for (Instruction *I : CreatedInstructions)
+    NewCost += TTI.getInstructionCost(I, CostKind);
+
+  LLVM_DEBUG(dbgs() << "VC: Found contiguous sibling trees\n"
+                    << "  OldCost: " << OldCost << " vs NewCost: " << NewCost
+                    << "\n");
+  if (!OldCost.isValid() || !NewCost.isValid() || NewCost >= OldCost)
+    return false;
+
+  // Replace every root before deleting any of them: one sibling root may be an
+  // operand of another, so recursive deletion after an earlier replacement
+  // could otherwise invalidate a later root pointer.
+  SmallVector<WeakTrackingVH> DeadRoots;
+  DeadRoots.reserve(Roots.size());
+  for (auto [Root, Replacement] : zip(Roots, Replacements)) {
+    auto *ReplacementI = cast<Instruction>(Replacement);
+    replaceAllDbgUsesWith(*Root, *Replacement, *ReplacementI, DT);
+    replaceValue(*Root, *Replacement, /*Erase=*/false);
+    DeadRoots.emplace_back(Root);
+  }
+  RecursivelyDeleteTriviallyDeadInstructions(
+      DeadRoots, nullptr, nullptr, [&](Value *V) {
+        if (auto *I = dyn_cast<Instruction>(V)) {
+          LLVM_DEBUG(dbgs() << "VC: Erased: " << *I << '\n');
+          Worklist.remove(I);
+          if (I == NextInst)
+            NextInst = NextInst->getNextNode();
+        }
+      });
+  Cleanup.release();
+  return true;
+}
+
+/// Merge complete groups of elementwise sibling trees that operate on
+/// contiguous slices of the same wider vector. Rebuild candidates after each
+/// successful fold because deleting one tree can invalidate other candidates.
+bool VectorCombine::foldContiguousSiblingTrees(BasicBlock &BB) {
+  bool MadeChange = false;
+  for (unsigned Iteration = 0; Iteration != MaxSiblingTreeFolds; ++Iteration) {
+    SmallVector<SiblingTreeCandidate> Candidates;
+    DenseMap<SiblingTreeKey, SmallVector<unsigned>, SiblingTreeKeyInfo> Buckets;
+
+    for (Instruction &I : BB) {
+      if ((!isa<BinaryOperator>(I) && !isa<SelectInst>(I)) || I.use_empty())
+        continue;
+      auto *NarrowTy = dyn_cast<FixedVectorType>(I.getType());
+      if (!NarrowTy)
+        continue;
+
+      SmallVector<unsigned, 4> SlicePath;
+      ContiguousSliceInfo Slice;
+      SmallPtrSet<Value *, 32> Visited;
+      unsigned NumVisited = 0;
+      if (!findContiguousSlicePath(&I, BB, SlicePath, Slice, Visited,
+                                   NumVisited, MaxInstrsToScan) ||
+          Slice.NarrowElts != NarrowTy->getNumElements() ||
+          Slice.WideElts % Slice.NarrowElts != 0 ||
+          Slice.Offset % Slice.NarrowElts != 0)
+        continue;
+
+      unsigned NumChunks = Slice.WideElts / Slice.NarrowElts;
+      if (NumChunks < 2 || NumChunks > MaxSiblingTreeChunks ||
+          !isPowerOf2_32(NumChunks))
+        continue;
+
+      SiblingTreeKey Key{Slice.Source,   I.getType(),
+                         I.getOpcode(),  Slice.NarrowElts,
+                         Slice.WideElts, std::move(SlicePath)};
+      unsigned CandidateIndex = Candidates.size();
+      Candidates.push_back(
+          SiblingTreeCandidate{&I, Slice.Offset, std::move(Key)});
+      Buckets[Candidates.back().Key].push_back(CandidateIndex);
+    }
+
+    bool LocalChange = false;
+    for (unsigned CandidateIndex = Candidates.size(); CandidateIndex-- != 0;) {
+      SiblingTreeCandidate &Seed = Candidates[CandidateIndex];
+      // Every complete group has a zero-offset root. Trying only those roots
+      // bounds duplicate matching and visits downstream roots first.
+      if (Seed.Offset != 0)
+        continue;
+
+      unsigned NumChunks = Seed.Key.WideElts / Seed.Key.NarrowElts;
+      SmallVector<Instruction *, MaxSiblingTreeChunks> Roots(NumChunks,
+                                                             nullptr);
+      Roots[0] = Seed.Root;
+      uint64_t MaxCandidateComparisons = uint64_t(MaxInstrsToScan) * NumChunks;
+      uint64_t NumCandidateComparisons = 0;
+      for (unsigned OtherIndex : Buckets.find(Seed.Key)->second) {
+        if (NumCandidateComparisons++ >= MaxCandidateComparisons)
+          break;
+        SiblingTreeCandidate &Other = Candidates[OtherIndex];
+        unsigned Chunk = Other.Offset / Seed.Key.NarrowElts;
+        if (Chunk >= NumChunks || Roots[Chunk] ||
+            !Seed.Root->isSameOperationAs(Other.Root))
+          continue;
+        Roots[Chunk] = Other.Root;
+        if (!is_contained(Roots, nullptr))
+          break;
+      }
+      if (is_contained(Roots, nullptr))
+        continue;
+
+      if (foldContiguousSiblingTree(Roots, Seed.Key.NarrowElts,
+                                    Seed.Key.WideElts)) {
+        MadeChange = LocalChange = true;
+        break;
+      }
+    }
+    if (!LocalChange)
+      break;
+  }
+  return MadeChange;
 }
 
 /// Try to convert "shuffle (binop (shuffle, shuffle)), undef"
@@ -7051,6 +7520,14 @@ bool VectorCombine::run() {
     // Ignore unreachable basic blocks.
     if (!DT.isReachableFromEntry(&BB))
       continue;
+
+    // SLP may leave complete groups of narrow elementwise trees operating on
+    // contiguous slices without a concatenating shuffle root. Re-form those
+    // trees only in the late pipeline, before the instruction walk starts, so
+    // sibling deletion cannot invalidate NextInst.
+    if (!TryEarlyFoldsOnly)
+      MadeChange |= foldContiguousSiblingTrees(BB);
+
     // Use early increment range so that we can erase instructions in loop.
     // make_early_inc_range is not applicable here, as the next iterator may
     // be invalidated by RecursivelyDeleteTriviallyDeadInstructions.

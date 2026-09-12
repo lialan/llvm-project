@@ -186,6 +186,51 @@ static cl::opt<unsigned> RecursionMaxDepth(
     "slp-recursion-max-depth", cl::init(12), cl::Hidden,
     cl::desc("Limit the recursion depth when building a vectorizable tree"));
 
+/// Limit the number of operand bundles inspected while recognizing a source
+/// reconstruction tree.
+static constexpr unsigned SourceReconstructionMaxEntries = 64;
+
+/// Return the source if \p VL contains all of its contiguous subvector slices
+/// exactly once.
+static Value *getCompleteSingleSourceSliceGroup(ArrayRef<Value *> VL) {
+  if (VL.empty() || !all_of(VL, IsaPred<ShuffleVectorInst>))
+    return nullptr;
+  auto *FirstShuffle = cast<ShuffleVectorInst>(VL.front());
+  Value *Source = FirstShuffle->getOperand(0);
+  auto *SourceTy = dyn_cast<FixedVectorType>(Source->getType());
+  auto *SliceTy = dyn_cast<FixedVectorType>(FirstShuffle->getType());
+  if (!SourceTy || !SliceTy ||
+      SourceTy->getElementType() != SliceTy->getElementType())
+    return nullptr;
+
+  unsigned NumSourceElts = SourceTy->getNumElements();
+  unsigned NumSliceElts = SliceTy->getNumElements();
+  if (NumSourceElts % NumSliceElts != 0 ||
+      VL.size() != NumSourceElts / NumSliceElts)
+    return nullptr;
+
+  SmallBitVector SeenSlices(VL.size());
+  for (Value *V : VL) {
+    auto *Shuffle = cast<ShuffleVectorInst>(V);
+    int Offset;
+    if (Shuffle->getType() != SliceTy || Shuffle->getOperand(0) != Source ||
+        !isa<PoisonValue>(Shuffle->getOperand(1)) ||
+        !Shuffle->isExtractSubvectorMask(Offset) || Offset < 0 ||
+        static_cast<unsigned>(Offset) % NumSliceElts != 0 ||
+        static_cast<unsigned>(Offset) + NumSliceElts > NumSourceElts)
+      return nullptr;
+
+    unsigned Slice = static_cast<unsigned>(Offset) / NumSliceElts;
+    if (SeenSlices.test(Slice) ||
+        !all_of(enumerate(Shuffle->getShuffleMask()), [&](auto Mask) {
+          return Mask.value() == Offset + static_cast<int>(Mask.index());
+        }))
+      return nullptr;
+    SeenSlices.set(Slice);
+  }
+  return SeenSlices.all() ? Source : nullptr;
+}
+
 static cl::opt<unsigned> MinTreeSize(
     "slp-min-tree-size", cl::init(3), cl::Hidden,
     cl::desc("Only vectorize small trees if they are fully vectorizable"));
@@ -12661,6 +12706,9 @@ void BoUpSLP::buildTreeRec(ArrayRef<Value *> VLRef, unsigned Depth,
       return;
     }
     case Instruction::ShuffleVector: {
+      bool ReuseCompleteSliceSource = SLPReVec && UserTreeIdx &&
+                                      !S.isAltShuffle() &&
+                                      getCompleteSingleSourceSliceGroup(VL);
       TreeEntry *TE = newTreeEntry(VL, Bundle /*vectorized*/, S, UserTreeIdx,
                                    ReuseShuffleIndices);
       if (S.isAltShuffle()) {
@@ -12723,6 +12771,10 @@ void BoUpSLP::buildTreeRec(ArrayRef<Value *> VLRef, unsigned Depth,
       if (!ReassocScalars.empty())
         RegisterReassocScalars(TE);
       TE->setOperands(Operands);
+      // A complete group of extract-subvector shuffles already represents its
+      // source vector. Do not build a gather of repeated copies of that source.
+      if (ReuseCompleteSliceSource)
+        return;
       for (unsigned I : seq<unsigned>(TE->getNumOperands()))
         buildTreeRec(TE->getOperand(I), Depth + 1, {TE, I});
       return;
@@ -23840,9 +23892,24 @@ Value *BoUpSLP::vectorizeTree(TreeEntry *E) {
       Value *V;
       if (SLPReVec && !E->isAltShuffle()) {
         setInsertPointAfterBundle(E);
-        Value *Src = vectorizeOperand(E, 0);
-        SmallVector<int> ThisMask(calculateShufflevectorMask(E->Scalars));
-        if (auto *SVSrc = dyn_cast<ShuffleVectorInst>(Src)) {
+        Value *Src;
+        SmallVector<int> ThisMask;
+        if (Value *SliceSource =
+                E->UserTreeIndex ? getCompleteSingleSourceSliceGroup(E->Scalars)
+                                 : nullptr) {
+          Src = SliceSource;
+          for (Value *Scalar : E->Scalars)
+            append_range(ThisMask,
+                         cast<ShuffleVectorInst>(Scalar)->getShuffleMask());
+        } else {
+          Src = vectorizeOperand(E, 0);
+          ThisMask.assign(calculateShufflevectorMask(E->Scalars));
+        }
+        if (ShuffleVectorInst::isIdentityMask(
+                ThisMask,
+                cast<FixedVectorType>(Src->getType())->getNumElements())) {
+          V = Src;
+        } else if (auto *SVSrc = dyn_cast<ShuffleVectorInst>(Src)) {
           SmallVector<int> NewMask(ThisMask.size());
           transform(ThisMask, NewMask.begin(), [&SVSrc](int Mask) {
             return SVSrc->getShuffleMask()[Mask];
@@ -23852,7 +23919,8 @@ Value *BoUpSLP::vectorizeTree(TreeEntry *E) {
         } else {
           V = Builder.CreateShuffleVector(Src, ThisMask);
         }
-        V = PropagateIRFlags(V);
+        if (V != Src)
+          V = PropagateIRFlags(V);
         V = FinalShuffle(V, E);
       } else {
         assert(E->isAltShuffle() &&
@@ -29061,6 +29129,79 @@ void SLPVectorizerPass::collectSeedInstructions(BasicBlock *BB) {
   }
 }
 
+/// Return the common VF if every non-constant leaf reachable through
+/// isomorphic elementwise operations in \p VL is a complete extract-subvector
+/// partition. Record the instructions that would be combined in \p TreeInsts.
+/// A zero VF represents a constant-only subtree.
+static std::optional<unsigned>
+getSourceReconstructionVF(ArrayRef<Value *> VL, const TargetLibraryInfo &TLI,
+                          SmallVectorImpl<Instruction *> &TreeInsts,
+                          unsigned &NumEntries, unsigned Depth = 0) {
+  if (VL.size() < 2 || Depth >= RecursionMaxDepth ||
+      ++NumEntries > SourceReconstructionMaxEntries)
+    return std::nullopt;
+  if (all_of(VL, IsaPred<Constant>))
+    return 0;
+  if (getCompleteSingleSourceSliceGroup(VL)) {
+    if (Depth == 0)
+      return std::nullopt;
+    for (Value *V : VL)
+      TreeInsts.push_back(cast<Instruction>(V));
+    return VL.size();
+  }
+
+  InstructionsState S = getSameOpcode(VL, TLI);
+  Instruction *MainOp = S ? S.getMainOp() : nullptr;
+  if (!MainOp || S.isAltShuffle() ||
+      !isa<BinaryOperator, CastInst, CmpInst, SelectInst, UnaryOperator,
+           FreezeInst>(MainOp))
+    return std::nullopt;
+
+  for (Value *V : VL) {
+    auto *I = dyn_cast<Instruction>(V);
+    if (!I || I->getParent() != MainOp->getParent() ||
+        I->getNumOperands() != MainOp->getNumOperands())
+      return std::nullopt;
+    TreeInsts.push_back(I);
+  }
+
+  unsigned VF = 0;
+  for (unsigned OpIdx : seq<unsigned>(MainOp->getNumOperands())) {
+    SmallVector<Value *> Operands;
+    Operands.reserve(VL.size());
+    for (Value *V : VL)
+      Operands.push_back(cast<Instruction>(V)->getOperand(OpIdx));
+    std::optional<unsigned> OperandVF = getSourceReconstructionVF(
+        Operands, TLI, TreeInsts, NumEntries, Depth + 1);
+    if (!OperandVF || (VF && *OperandVF && VF != *OperandVF))
+      return std::nullopt;
+    VF = std::max(VF, *OperandVF);
+  }
+  return VF ? std::optional<unsigned>(VF) : std::nullopt;
+}
+
+/// Return true if combining \p TreeInsts would move an instruction across
+/// inline assembly. Inline assembly may intentionally be used as a scheduling
+/// barrier even when it has no side effects.
+static bool isSeparatedByInlineAsm(ArrayRef<Instruction *> TreeInsts) {
+  if (TreeInsts.empty())
+    return false;
+  Instruction *First = TreeInsts.front();
+  Instruction *Last = First;
+  for (Instruction *I : TreeInsts.drop_front()) {
+    if (I->getParent() != First->getParent())
+      return true;
+    if (I->comesBefore(First))
+      First = I;
+    if (Last->comesBefore(I))
+      Last = I;
+  }
+  for (Instruction *I = First; I != Last; I = I->getNextNode())
+    if (auto *CB = dyn_cast<CallBase>(I); CB && CB->isInlineAsm())
+      return true;
+  return false;
+}
+
 bool SLPVectorizerPass::tryToVectorizeList(ArrayRef<Value *> VL, BoUpSLP &R,
                                            bool MaxVFOnly,
                                            bool StandaloneSeeds) {
@@ -29100,6 +29241,17 @@ bool SLPVectorizerPass::tryToVectorizeList(ArrayRef<Value *> VL, BoUpSLP &R,
   Type *ScalarTy = getValueType(VL[0], SLPReVec, /*LookThroughCmp=*/true);
   unsigned Sz = R.getVectorElementSize(I0);
   unsigned MinVF = R.getMinVF(Sz);
+  unsigned SourceReconstructionVF = 0;
+  if (SLPReVec && VL.front()->getType()->isVectorTy()) {
+    SmallVector<Instruction *> TreeInsts;
+    unsigned NumEntries = 0;
+    std::optional<unsigned> VF =
+        getSourceReconstructionVF(VL, *TLI, TreeInsts, NumEntries);
+    if (VF && isSeparatedByInlineAsm(TreeInsts))
+      return false;
+    if (VF)
+      SourceReconstructionVF = *VF;
+  }
   unsigned MaxVF =
       std::max<unsigned>(isAllowedNonPowerOf2VF(VL.size(), VectorizeNonPowerOf2)
                              ? VL.size()
@@ -29110,6 +29262,16 @@ bool SLPVectorizerPass::tryToVectorizeList(ArrayRef<Value *> VL, BoUpSLP &R,
   // Standalone seeds only need one register worth of lanes.
   if (StandaloneSeeds && Sz != 0)
     MaxVF = std::min(MaxVF, std::max(MinVF, R.getMaxVecRegSize() / Sz));
+  // Revectorizing at an existing source width may intentionally span multiple
+  // target vector registers. Permit exactly that source-derived VF while
+  // honoring an explicit VF limit. Do not override an explicit register-size
+  // limit, since source operations may be wider than the tree root.
+  bool ExplicitVFAllows = !MaxVFOption.getNumOccurrences() ||
+                          MaxVFOption == 0 ||
+                          SourceReconstructionVF <= MaxVFOption;
+  if (SourceReconstructionVF && ExplicitVFAllows &&
+      !MaxVectorRegSizeOption.getNumOccurrences())
+    MaxVF = std::max(MaxVF, SourceReconstructionVF);
   if (MaxVF < 2) {
     R.getORE()->emit([&]() {
       return OptimizationRemarkMissed(SV_NAME, "SmallVF", I0)

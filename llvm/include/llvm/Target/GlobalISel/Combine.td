@@ -1274,6 +1274,13 @@ def trunc_shift: GICombineRule <
   (apply [{ Helper.applyCombineTruncOfShift(*${root}, ${matchinfo}); }])
 >;
 
+// Fold trunc([al]shr X, K) to [al]shr(trunc X, K).
+def narrow_trunc_shr_const : GICombineRule<
+  (defs root:$root, build_fn_matchinfo:$matchinfo),
+  (match (wip_match_opcode G_TRUNC):$root,
+    [{ return Helper.matchNarrowTruncShrConst(*${root}, ${matchinfo}); }]),
+  (apply [{ Helper.applyBuildFn(*${root}, ${matchinfo}); }])>;
+
 // Transform (mul x, -1) -> (sub 0, x)
 def mul_by_neg_one: GICombineRule <
   (defs root:$dst),
@@ -2825,7 +2832,7 @@ def all_combines : GICombineGroup<[integer_reassoc_combines, trivial_combines,
     reassocs, ptr_add_immed_chain, cmp_combines,
     shl_ashr_to_sext_inreg, neg_and_one_to_sext_inreg, sext_inreg_of_load,
     width_reduction_combines, select_combines, select_zero_false, select_not,
-    known_bits_simplifications, trunc_shift,
+    known_bits_simplifications, trunc_shift, narrow_trunc_shr_const,
     not_cmp_fold, opt_brcond_by_inverting_cond,
     const_combines, xor_of_and_with_same_reg, ptr_add_with_zero,
     shift_immed_chain, shift_of_shifted_logic_chain, load_or_combine,

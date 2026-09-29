@@ -1114,6 +1114,10 @@ public:
   LLVM_ABI bool matchCountZeroToZeroPoison(MachineInstr &MI) const;
   LLVM_ABI void applyCountZeroToZeroPoison(MachineInstr &MI) const;
 
+  /// Narrow a truncated right shift by a constant.
+  LLVM_ABI bool matchNarrowTruncShrConst(MachineInstr &MI,
+                                         BuildFnTy &MatchInfo) const;
+
 private:
   /// Checks for legality of an indexed variant of \p LdSt.
   bool isIndexedLoadStoreLegal(GLoadStore &LdSt) const;

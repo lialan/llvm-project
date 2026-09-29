@@ -8708,3 +8708,65 @@ bool CombinerHelper::matchCountZeroToZeroPoison(MachineInstr &MI) const {
 void CombinerHelper::applyCountZeroToZeroPoison(MachineInstr &MI) const {
   replaceOpcodeWith(MI, getCountZeroPoisonOpcode(MI));
 }
+
+bool CombinerHelper::matchNarrowTruncShrConst(MachineInstr &MI,
+                                              BuildFnTy &MatchInfo) const {
+  assert(MI.getOpcode() == TargetOpcode::G_TRUNC && "Expected G_TRUNC");
+  Register Dst = MI.getOperand(0).getReg();
+  Register Src = MI.getOperand(1).getReg();
+  if (!MRI.hasOneNonDBGUse(Src))
+    return false;
+
+  MachineInstr *ShrMI = getDefIgnoringCopies(Src, MRI);
+  assert(ShrMI && "Expected a defining instruction");
+  unsigned ShrOpc = ShrMI->getOpcode();
+  if (ShrOpc != TargetOpcode::G_LSHR && ShrOpc != TargetOpcode::G_ASHR)
+    return false;
+  if (!MRI.hasOneNonDBGUse(ShrMI->getOperand(0).getReg()))
+    return false;
+
+  Register X = ShrMI->getOperand(1).getReg();
+  Register AmtReg = ShrMI->getOperand(2).getReg();
+  LLT SrcTy = MRI.getType(X);
+  LLT DstTy = MRI.getType(Dst);
+  // Preserve vector shift-right-narrow instructions such as AArch64 SHRN.
+  if (DstTy.isVector())
+    return false;
+  assert(SrcTy.isScalar() && "G_TRUNC must preserve scalar/vector shape");
+
+  unsigned SrcBW = SrcTy.getScalarSizeInBits();
+  unsigned DstBW = DstTy.getScalarSizeInBits();
+  assert(DstBW < SrcBW && "G_TRUNC must reduce scalar width");
+
+  std::optional<APInt> K = getConstantOrConstantSplatVector(AmtReg);
+  // Keep K < DstBW to avoid cycling with trunc_shift.
+  if (!K || K->uge(DstBW))
+    return false;
+  unsigned KVal = K->getZExtValue();
+  if (KVal + DstBW > SrcBW)
+    return false;
+
+  if (!VT)
+    return false;
+
+  LLT AmtTy = getTargetLowering().getPreferredShiftAmountTy(DstTy);
+  if (!isLegalOrBeforeLegalizer({ShrOpc, {DstTy, AmtTy}}))
+    return false;
+
+  if (ShrOpc == TargetOpcode::G_LSHR) {
+    if (!VT->maskedValueIsZero(X,
+                               APInt::getBitsSet(SrcBW, DstBW, DstBW + KVal)))
+      return false;
+  } else {
+    unsigned SignBits = VT->computeNumSignBits(X);
+    if (SignBits < SrcBW - DstBW + 1)
+      return false;
+  }
+
+  MatchInfo = [=](MachineIRBuilder &B) {
+    Register NarrowX = B.buildTrunc(DstTy, X).getReg(0);
+    Register NarrowAmt = B.buildConstant(AmtTy, KVal).getReg(0);
+    B.buildInstr(ShrOpc, {Dst}, {NarrowX, NarrowAmt});
+  };
+  return true;
+}

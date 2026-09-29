@@ -2713,6 +2713,22 @@ void CombinerHelper::applyCombineTruncOfShift(
 
   Register ShiftAmt = ShiftMI->getOperand(2).getReg();
   Register ShiftSrc = ShiftMI->getOperand(1).getReg();
+
+  unsigned NewBW = NewShiftTy.getScalarSizeInBits();
+  APInt Demanded = APInt::getLowBitsSet(NewBW, DstTy.getScalarSizeInBits());
+  if (std::optional<APInt> K = getConstantOrConstantSplatVector(ShiftAmt)) {
+    assert(K->ult(NewBW) && "shift amount must fit the narrowed type");
+    Demanded = getDemandedSrcBitsForShiftConst(ShiftMI->getOpcode(), Demanded,
+                                               K->getZExtValue());
+  } else {
+    // A variable shift can draw any of the retained source bits into Dst.
+    Demanded.setAllBits();
+  }
+  unsigned SrcBW = MRI.getType(ShiftSrc).getScalarSizeInBits();
+  KnownBits Known(SrcBW);
+  simplifyDemandedBits(*ShiftMI, /*OpNo=*/1, Demanded.zext(SrcBW), Known);
+  ShiftSrc = ShiftMI->getOperand(1).getReg();
+
   ShiftSrc = Builder.buildTrunc(NewShiftTy, ShiftSrc).getReg(0);
 
   const auto &TL = getTargetLowering();

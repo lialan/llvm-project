@@ -83,6 +83,46 @@ body:             |
     RET_ReallyLR
 ...
 ---
+name:            dont_fold_bit_eq_width
+alignment:       4
+legalized:       true
+regBankSelected: true
+body:             |
+  ; CHECK-LABEL: name: dont_fold_bit_eq_width
+  ; CHECK: bb.0:
+  ; CHECK-NEXT:   successors: %bb.0(0x40000000), %bb.1(0x40000000)
+  ; CHECK-NEXT:   liveins: $x0
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   %copy:gpr64 = COPY $x0
+  ; CHECK-NEXT:   %ubfx:gpr64 = UBFMXri %copy, 3, 6
+  ; CHECK-NEXT:   [[COPY:%[0-9]+]]:gpr32all = COPY %ubfx.sub_32
+  ; CHECK-NEXT:   [[COPY1:%[0-9]+]]:gpr32 = COPY [[COPY]]
+  ; CHECK-NEXT:   TBNZW [[COPY1]], 4, %bb.1
+  ; CHECK-NEXT:   B %bb.0
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.1:
+  ; CHECK-NEXT:   RET_ReallyLR
+  bb.0:
+    successors: %bb.0, %bb.1
+    liveins: $x0
+
+    ; G_UBFX %x, lsb=3, width=4 -- testing bit 4 of the extract (== width).
+    ; This bit is zero; the walker must retain UBFX rather than test bit 7 of x.
+    %copy:gpr(s64) = COPY $x0
+    %lsb:gpr(s64) = G_CONSTANT i64 3
+    %width:gpr(s64) = G_CONSTANT i64 4
+    %ubfx:gpr(s64) = G_UBFX %copy, %lsb, %width
+
+    %bit:gpr(s64) = G_CONSTANT i64 16
+    %zero:gpr(s64) = G_CONSTANT i64 0
+    %and:gpr(s64) = G_AND %ubfx, %bit
+    %cmp:gpr(s32) = G_ICMP intpred(ne), %and(s64), %zero
+    G_BRCOND %cmp, %bb.1
+    G_BR %bb.0
+  bb.1:
+    RET_ReallyLR
+...
+---
 name:            fold_ubfx_max_bit
 alignment:       4
 legalized:       true

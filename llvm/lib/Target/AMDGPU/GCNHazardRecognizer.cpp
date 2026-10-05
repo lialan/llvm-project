@@ -632,6 +632,9 @@ GCNHazardRecognizer::getHazardType(SUnit *SU, int Stalls) {
       checkMAILdStHazards(MI) > 0)
     return HazardType;
 
+  if (ST.hasGFX950Insts() && isPermlane(*MI) && checkPermlaneHazards(MI) > 0)
+    return HazardType;
+
   if (MI->isInlineAsm() && checkInlineAsmHazards(MI) > 0)
     return HazardType;
 

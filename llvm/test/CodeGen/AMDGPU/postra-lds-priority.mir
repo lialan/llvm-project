@@ -1,0 +1,521 @@
+# RUN: llc -mtriple=amdgcn-amd-amdhsa -mcpu=gfx950 -run-pass=postmisched -misched-cluster=false -verify-machineinstrs -verify-misched %s -o - | FileCheck %s --check-prefixes=CHECK,OFF
+# RUN: llc -mtriple=amdgcn-amd-amdhsa -mcpu=gfx950 -run-pass=postmisched -misched-cluster=false -verify-machineinstrs -verify-misched -amdgpu-postra-lds-priority=false %s -o - | FileCheck %s --check-prefixes=CHECK,OFF
+# RUN: llc -mtriple=amdgcn-amd-amdhsa -mcpu=gfx950 -run-pass=postmisched -misched-cluster=false -verify-machineinstrs -verify-misched -amdgpu-postra-lds-priority=true %s -o - | FileCheck %s --check-prefixes=CHECK,ON
+
+--- |
+  define amdgpu_kernel void @ready_lds_order_height() { ret void }
+  define amdgpu_kernel void @ready_lds_b32_order_height() { ret void }
+  define amdgpu_kernel void @priority_tie_lds_first() { ret void }
+  define amdgpu_kernel void @priority_tie_valu_first() { ret void }
+  define amdgpu_kernel void @nonempty_asm_consumer_height() { ret void }
+  define amdgpu_kernel void @sideeffect_asm_consumer_height() { ret void }
+  define amdgpu_kernel void @untied_asm_consumer_height() { ret void }
+  define amdgpu_kernel void @native_consumer_height() { ret void }
+  define amdgpu_kernel void @mixed_tied_native_consumer_height() { ret void }
+  define amdgpu_kernel void @gds_load_height() #1 { ret void }
+  define amdgpu_kernel void @store_height() { ret void }
+  define amdgpu_kernel void @rmw_height() { ret void }
+  define amdgpu_kernel void @load_vs_load_height() { ret void }
+  define amdgpu_kernel void @valu_vs_valu_height() { ret void }
+  define amdgpu_kernel void @load_blocked_by_address() { ret void }
+  define amdgpu_kernel void @load_blocked_by_mfma_hazard() { ret void }
+  define amdgpu_kernel void @volatile_load_height() { ret void }
+  define amdgpu_kernel void @long_valu_height() { ret void }
+  define amdgpu_kernel void @ready_lds_bottomup() #0 { ret void }
+  attributes #0 = { "amdgpu-post-ra-direction"="bottomup" }
+  attributes #1 = { "target-cpu"="gfx900" }
+...
+
+# The ready LDS load has height 1 from the later ordering barrier; the
+# tied identity has zero data latency. An independent VALU has height 2,
+# so the default remaining-path priority chooses it first. The opt-in
+# priority adds the modeled LDS latency and chooses the ready load first.
+
+---
+name: ready_lds_order_height
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: ready_lds_order_height
+  ; CHECK: liveins: $vgpr0, $vgpr4, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; ON-NEXT: $vgpr2_vgpr3 = DS_READ_B64_TR_B16
+  ; OFF-NEXT: $vgpr4 = V_ADD_U32_e32
+  ; OFF-NEXT: $vgpr2_vgpr3 = DS_READ_B64_TR_B16
+  bb.0:
+    liveins: $vgpr0, $vgpr4, $exec
+
+    $vgpr2_vgpr3 = DS_READ_B64_TR_B16 $vgpr0, 64, 0, implicit $exec :: (load (s64), addrspace 3)
+    INLINEASM &"", attdialect, regdef:VReg_64_Align2, def $vgpr2_vgpr3, reguse tiedto:$0, $vgpr2_vgpr3(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr5 = V_ADD_U32_e32 $vgpr2, $vgpr3, implicit $exec
+    S_ENDPGM 0
+...
+
+# The same bounded latency priority applies to an ordinary LDS DWORD load.
+
+---
+name: ready_lds_b32_order_height
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: ready_lds_b32_order_height
+  ; CHECK: liveins: $vgpr0, $vgpr4, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; ON-NEXT: $vgpr2 = DS_READ_B32_gfx9
+  ; OFF-NEXT: $vgpr4 = V_ADD_U32_e32
+  ; OFF-NEXT: $vgpr2 = DS_READ_B32_gfx9
+  bb.0:
+    liveins: $vgpr0, $vgpr4, $exec
+
+    $vgpr2 = DS_READ_B32_gfx9 $vgpr0, 64, 0, implicit $exec :: (load (s32), addrspace 3)
+    INLINEASM &"", attdialect, regdef:VGPR_32, def $vgpr2, reguse tiedto:$0, $vgpr2(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr5 = V_ADD_U32_e32 1, $vgpr2, implicit $exec
+    S_ENDPGM 0
+...
+
+# Equal adjusted priorities fall back to instruction order. The load's
+# priority is five, matching the independent VALU path's height.
+
+---
+name: priority_tie_lds_first
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: priority_tie_lds_first
+  ; CHECK: liveins: $vgpr0, $vgpr4, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; ON-NEXT: $vgpr2 = DS_READ_B32_gfx9
+  ; OFF-NEXT: $vgpr4 = V_ADD_U32_e32
+  bb.0:
+    liveins: $vgpr0, $vgpr4, $exec
+
+    $vgpr2 = DS_READ_B32_gfx9 $vgpr0, 64, 0, implicit $exec :: (load (s32), addrspace 3)
+    INLINEASM &"", attdialect, regdef:VGPR_32, def $vgpr2, reguse tiedto:$0, $vgpr2(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr5 = V_ADD_U32_e32 1, $vgpr2, implicit $exec
+    S_ENDPGM 0
+...
+
+# Reverse the original order: the VALU must win the same priority tie.
+
+---
+name: priority_tie_valu_first
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: priority_tie_valu_first
+  ; CHECK: liveins: $vgpr0, $vgpr4, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: $vgpr4 = V_ADD_U32_e32
+  ; CHECK: $vgpr2 = DS_READ_B32_gfx9
+  bb.0:
+    liveins: $vgpr0, $vgpr4, $exec
+
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr2 = DS_READ_B32_gfx9 $vgpr0, 64, 0, implicit $exec :: (load (s32), addrspace 3)
+    INLINEASM &"", attdialect, regdef:VGPR_32, def $vgpr2, reguse tiedto:$0, $vgpr2(tied-def 3)
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr5 = V_ADD_U32_e32 1, $vgpr2, implicit $exec
+    S_ENDPGM 0
+...
+
+# A nonempty asm consumer retains the original LDS height priority,
+# even when its operands form the same tied register identity.
+
+---
+name: nonempty_asm_consumer_height
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: nonempty_asm_consumer_height
+  ; CHECK: liveins: $vgpr0, $vgpr4, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: $vgpr4 = V_ADD_U32_e32
+  ; CHECK-NEXT: $vgpr2_vgpr3 = DS_READ_B64_TR_B16
+  bb.0:
+    liveins: $vgpr0, $vgpr4, $exec
+
+    $vgpr2_vgpr3 = DS_READ_B64_TR_B16 $vgpr0, 64, 0, implicit $exec :: (load (s64), addrspace 3)
+    INLINEASM &"s_nop 0", attdialect, regdef:VReg_64_Align2, def $vgpr2_vgpr3, reguse tiedto:$0, $vgpr2_vgpr3(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr5 = V_ADD_U32_e32 $vgpr2, $vgpr3, implicit $exec
+    S_ENDPGM 0
+...
+
+# Empty asm with side effects is not a pure grouping identity. Its ordering
+# edges increase the LDS height, so use two VALUs on the independent chain
+# before the barrier.
+
+---
+name: sideeffect_asm_consumer_height
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: sideeffect_asm_consumer_height
+  ; CHECK: liveins: $vgpr0, $vgpr4, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: $vgpr4 = V_ADD_U32_e32
+  ; CHECK-NEXT: $vgpr2_vgpr3 = DS_READ_B64_TR_B16
+  bb.0:
+    liveins: $vgpr0, $vgpr4, $exec
+
+    $vgpr2_vgpr3 = DS_READ_B64_TR_B16 $vgpr0, 64, 0, implicit $exec :: (load (s64), addrspace 3)
+    INLINEASM &"", sideeffect attdialect, regdef:VReg_64_Align2, def $vgpr2_vgpr3, reguse tiedto:$0, $vgpr2_vgpr3(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr5 = V_ADD_U32_e32 $vgpr2, $vgpr3, implicit $exec
+    S_ENDPGM 0
+...
+
+# An empty asm consumer must explicitly tie its uses to its definitions.
+
+---
+name: untied_asm_consumer_height
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: untied_asm_consumer_height
+  ; CHECK: liveins: $vgpr0, $vgpr4, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: $vgpr4 = V_ADD_U32_e32
+  ; CHECK-NEXT: $vgpr2_vgpr3 = DS_READ_B64_TR_B16
+  bb.0:
+    liveins: $vgpr0, $vgpr4, $exec
+
+    $vgpr2_vgpr3 = DS_READ_B64_TR_B16 $vgpr0, 64, 0, implicit $exec :: (load (s64), addrspace 3)
+    INLINEASM &"", attdialect, regdef:VReg_64_Align2, def $vgpr2_vgpr3, reguse:VReg_64_Align2, $vgpr2_vgpr3
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr5 = V_ADD_U32_e32 $vgpr2, $vgpr3, implicit $exec
+    S_ENDPGM 0
+...
+
+# The native consumer already contributes the modeled LDS data latency.
+# Do not add it again: the independent VALU path remains longer.
+
+---
+name: native_consumer_height
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: native_consumer_height
+  ; CHECK: liveins: $vgpr0, $vgpr4, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: $vgpr4 = V_ADD_U32_e32
+  ; CHECK: $vgpr2 = DS_READ_B32_gfx9
+  bb.0:
+    liveins: $vgpr0, $vgpr4, $exec
+
+    $vgpr2 = DS_READ_B32_gfx9 $vgpr0, 64, 0, implicit $exec :: (load (s32), addrspace 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr5 = V_ADD_U32_e32 1, $vgpr2, implicit $exec
+    S_ENDPGM 0
+...
+
+# Only the low DWORD passes through the tied identity. The high DWORD's
+# native consumer already gives the load a five-cycle remaining path, so
+# adding the modeled latency to the whole height would double count it.
+# The independent VALU path has height nine and must retain priority.
+
+---
+name: mixed_tied_native_consumer_height
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: mixed_tied_native_consumer_height
+  ; CHECK: liveins: $vgpr0, $vgpr4, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: $vgpr4 = V_ADD_U32_e32
+  ; CHECK: $vgpr2_vgpr3 = DS_READ_B64_TR_B16
+  bb.0:
+    liveins: $vgpr0, $vgpr4, $exec
+
+    $vgpr2_vgpr3 = DS_READ_B64_TR_B16 $vgpr0, 64, 0, implicit $exec :: (load (s64), addrspace 3)
+    INLINEASM &"", attdialect, regdef:VGPR_32, def $vgpr2, reguse tiedto:$0, $vgpr2(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr5 = V_ADD_U32_e32 1, $vgpr3, implicit $exec
+    $vgpr6 = V_ADD_U32_e32 1, $vgpr2, implicit $exec
+    S_ENDPGM 0
+...
+
+# The DS encoding also supports GDS reads, but these are not LDS loads.
+# Use gfx900, which supports GDS, and retain the default height priority.
+
+---
+name: gds_load_height
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: gds_load_height
+  ; CHECK: liveins: $vgpr0, $vgpr4, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: $vgpr4 = V_ADD_U32_e32
+  ; CHECK-NEXT: $vgpr2 = DS_READ_B32_gfx9 {{.*}}$vgpr0, 64, 1, implicit $exec
+  bb.0:
+    liveins: $vgpr0, $vgpr4, $exec
+
+    $vgpr2 = DS_READ_B32_gfx9 $vgpr0, 64, 1, implicit $exec :: (load (s32), addrspace 2)
+    INLINEASM &"", attdialect, regdef:VGPR_32, def $vgpr2, reguse tiedto:$0, $vgpr2(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr5 = V_ADD_U32_e32 1, $vgpr2, implicit $exec
+    S_ENDPGM 0
+...
+
+# Preserve the original height priority for LDS stores.
+
+---
+name: store_height
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: store_height
+  ; CHECK: liveins: $vgpr0, $vgpr1, $vgpr4, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: $vgpr4 = V_ADD_U32_e32
+  ; CHECK-NEXT: DS_WRITE_B32_gfx9
+  bb.0:
+    liveins: $vgpr0, $vgpr1, $vgpr4, $exec
+
+    DS_WRITE_B32_gfx9 $vgpr0, $vgpr1, 64, 0, implicit $exec :: (store (s32), addrspace 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    S_ENDPGM 0
+...
+
+# A DS read-modify-write is not a pure load; preserve its original priority.
+
+---
+name: rmw_height
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: rmw_height
+  ; CHECK: liveins: $vgpr0, $vgpr1, $vgpr4, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: $vgpr4 = V_ADD_U32_e32
+  ; CHECK-NEXT: $vgpr2 = DS_ADD_RTN_U32_gfx9
+  bb.0:
+    liveins: $vgpr0, $vgpr1, $vgpr4, $exec
+
+    $vgpr2 = DS_ADD_RTN_U32_gfx9 $vgpr0, $vgpr1, 64, 0, implicit $exec :: (load store (s32), addrspace 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    S_ENDPGM 0
+...
+
+# Only the first DWORD load has a zero-latency tied asm consumer and
+# receives the extra modeled latency contribution. The later load has
+# a longer real data path and must still issue first.
+# Clustering is disabled so it cannot mask this choice.
+
+---
+name: load_vs_load_height
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: load_vs_load_height
+  ; CHECK: liveins: $vgpr0, $vgpr4, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: $vgpr8 = DS_READ_B32_gfx9
+  ; CHECK: $vgpr2 = DS_READ_B32_gfx9
+  bb.0:
+    liveins: $vgpr0, $vgpr4, $exec
+
+    $vgpr2 = DS_READ_B32_gfx9 $vgpr0, 64, 0, implicit $exec :: (load (s32), addrspace 3)
+    INLINEASM &"", attdialect, regdef:VGPR_32, def $vgpr2, reguse tiedto:$0, $vgpr2(tied-def 3)
+    $vgpr8 = DS_READ_B32_gfx9 $vgpr0, 128, 0, implicit $exec :: (load (s32), addrspace 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr9 = V_ADD_U32_e32 1, $vgpr8, implicit $exec
+    $vgpr10 = V_ADD_U32_e32 1, $vgpr9, implicit $exec
+    $vgpr10 = V_ADD_U32_e32 1, $vgpr10, implicit $exec
+    $vgpr5 = V_ADD_U32_e32 1, $vgpr2, implicit $exec
+    S_ENDPGM 0
+...
+
+# Retain height priority between VALU candidates: the longer vgpr6 chain
+# must issue before the earlier, shorter vgpr4 chain.
+
+---
+name: valu_vs_valu_height
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: valu_vs_valu_height
+  ; CHECK: liveins: $vgpr0, $vgpr4, $vgpr6, $exec
+  ; CHECK-NOT: $vgpr4 = V_ADD_U32_e32
+  ; CHECK: $vgpr6 = V_ADD_U32_e32
+  ; CHECK: $vgpr4 = V_ADD_U32_e32
+  bb.0:
+    liveins: $vgpr0, $vgpr4, $vgpr6, $exec
+
+    $vgpr2_vgpr3 = DS_READ_B64_TR_B16 $vgpr0, 64, 0, implicit $exec :: (load (s64), addrspace 3)
+    INLINEASM &"", attdialect, regdef:VReg_64_Align2, def $vgpr2_vgpr3, reguse tiedto:$0, $vgpr2_vgpr3(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr6 = V_ADD_U32_e32 1, $vgpr6, implicit $exec
+    $vgpr6 = V_ADD_U32_e32 1, $vgpr6, implicit $exec
+    $vgpr6 = V_ADD_U32_e32 1, $vgpr6, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3), reguse:VGPR_32, $vgpr6
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr5 = V_ADD_U32_e32 $vgpr2, $vgpr3, implicit $exec
+    S_ENDPGM 0
+...
+
+# LDS preference must respect the address dependency.
+
+---
+name: load_blocked_by_address
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: load_blocked_by_address
+  ; CHECK: $vgpr0 = V_ADD_U32_e32
+  ; CHECK: $vgpr2_vgpr3 = DS_READ_B64_TR_B16
+  bb.0:
+    liveins: $vgpr0, $vgpr4, $exec
+
+    $vgpr0 = V_ADD_U32_e32 64, $vgpr0, implicit $exec
+    $vgpr2_vgpr3 = DS_READ_B64_TR_B16 $vgpr0, 64, 0, implicit $exec :: (load (s64), addrspace 3)
+    INLINEASM &"", attdialect, regdef:VReg_64_Align2, def $vgpr2_vgpr3, reguse tiedto:$0, $vgpr2_vgpr3(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr5 = V_ADD_U32_e32 $vgpr2, $vgpr3, implicit $exec
+    S_ENDPGM 0
+...
+
+# The load address was written by MFMA. The hazard recognizer keeps the
+# load pending while independent VALU work issues.
+
+---
+name: load_blocked_by_mfma_hazard
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: load_blocked_by_mfma_hazard
+  ; CHECK: liveins: $vgpr0_vgpr1_vgpr2_vgpr3, $vgpr4, $vgpr8, $vgpr9, $mode, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: $vgpr0_vgpr1_vgpr2_vgpr3 = V_MFMA_I32_4X4X4I8_vgprcd_e64
+  ; CHECK-NEXT: $vgpr4 = V_ADD_U32_e32
+  ; CHECK-NEXT: $vgpr6_vgpr7 = DS_READ_B64_TR_B16
+  bb.0:
+    liveins: $vgpr0_vgpr1_vgpr2_vgpr3, $vgpr4, $vgpr8, $vgpr9, $mode, $exec
+
+    $vgpr0_vgpr1_vgpr2_vgpr3 = V_MFMA_I32_4X4X4I8_vgprcd_e64 $vgpr8, $vgpr9, $vgpr0_vgpr1_vgpr2_vgpr3, 0, 0, 0, implicit $mode, implicit $exec
+    $vgpr6_vgpr7 = DS_READ_B64_TR_B16 $vgpr0, 64, 0, implicit $exec :: (load (s64), addrspace 3)
+    INLINEASM &"", attdialect, regdef:VReg_64_Align2, def $vgpr6_vgpr7, reguse tiedto:$0, $vgpr6_vgpr7(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr10 = V_ADD_U32_e32 $vgpr6, $vgpr7, implicit $exec
+    S_ENDPGM 0
+...
+
+# Volatile LDS loads have an ordered memory reference and do not receive
+# the additional latency priority, even though they are pure loads.
+
+---
+name: volatile_load_height
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: volatile_load_height
+  ; CHECK: liveins: $vgpr0, $vgpr4, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: $vgpr4 = V_ADD_U32_e32
+  ; CHECK-NEXT: $vgpr2 = DS_READ_B32_gfx9
+  bb.0:
+    liveins: $vgpr0, $vgpr4, $exec
+
+    $vgpr2 = DS_READ_B32_gfx9 $vgpr0, 64, 0, implicit $exec :: (volatile load (s32), addrspace 3)
+    INLINEASM &"", attdialect, regdef:VGPR_32, def $vgpr2, reguse tiedto:$0, $vgpr2(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr5 = V_ADD_U32_e32 1, $vgpr2, implicit $exec
+    S_ENDPGM 0
+...
+
+# Eight dependent VALU additions before the barrier give a genuinely
+# longer remaining path than the load's height plus its five-cycle modeled
+# latency. The opt-in priority must not always choose a ready LDS load.
+
+---
+name: long_valu_height
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: long_valu_height
+  ; CHECK: liveins: $vgpr0, $vgpr4, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: $vgpr4 = V_ADD_U32_e32
+  ; CHECK: $vgpr2 = DS_READ_B32_gfx9
+  bb.0:
+    liveins: $vgpr0, $vgpr4, $exec
+
+    $vgpr2 = DS_READ_B32_gfx9 $vgpr0, 64, 0, implicit $exec :: (load (s32), addrspace 3)
+    INLINEASM &"", attdialect, regdef:VGPR_32, def $vgpr2, reguse tiedto:$0, $vgpr2(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr5 = V_ADD_U32_e32 1, $vgpr2, implicit $exec
+    S_ENDPGM 0
+...
+
+# The bottom-up strategy must retain its original candidate priority.
+
+---
+name: ready_lds_bottomup
+tracksRegLiveness: true
+body: |
+  ; CHECK-LABEL: name: ready_lds_bottomup
+  ; CHECK: liveins: $vgpr0, $vgpr4, $exec
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: $vgpr4 = V_ADD_U32_e32
+  ; CHECK-NEXT: $vgpr2_vgpr3 = DS_READ_B64_TR_B16
+  bb.0:
+    liveins: $vgpr0, $vgpr4, $exec
+
+    $vgpr2_vgpr3 = DS_READ_B64_TR_B16 $vgpr0, 64, 0, implicit $exec :: (load (s64), addrspace 3)
+    INLINEASM &"", attdialect, regdef:VReg_64_Align2, def $vgpr2_vgpr3, reguse tiedto:$0, $vgpr2_vgpr3(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    INLINEASM &"s_nop 0", sideeffect attdialect, regdef:VGPR_32, def $vgpr4, reguse tiedto:$0, $vgpr4(tied-def 3)
+    $vgpr4 = V_ADD_U32_e32 1, $vgpr4, implicit $exec
+    $vgpr5 = V_ADD_U32_e32 $vgpr2, $vgpr3, implicit $exec
+    S_ENDPGM 0
+...

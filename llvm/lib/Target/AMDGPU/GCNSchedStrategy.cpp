@@ -38,6 +38,7 @@
 #include "llvm/CodeGen/MachineCycleAnalysis.h"
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/Rematerializer.h"
+#include "llvm/IR/InlineAsm.h"
 #include "llvm/MC/LaneBitmask.h"
 #include "llvm/MC/MCSchedule.h"
 #include "llvm/MC/TargetRegistry.h"
@@ -83,6 +84,13 @@ static cl::opt<unsigned> PendingQueueLimit(
     cl::desc(
         "Max (Available+Pending) size to inspect pending queue (0 disables)"),
     cl::init(256));
+
+static cl::opt<bool> PostRALDSPriority(
+    "amdgpu-postra-lds-priority", cl::Hidden,
+    cl::desc(
+        "Prioritize grouped LDS reads by their modeled latency during post-RA "
+        "scheduling"),
+    cl::init(false));
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
 #define DUMP_MAX_REG_PRESSURE
@@ -3361,6 +3369,116 @@ void GCNScheduleDAGMILive::setTargetOccupancy(unsigned TargetOccupancy) {
     MFI.increaseOccupancy(MF, MinOccupancy);
   else
     MFI.limitOccupancy(MinOccupancy);
+}
+
+// Restrict the optional LDS priority to empty asm that groups values in tied
+// registers. These data edges carry no modeled use latency, so the remaining
+// path comparison can delay ready asynchronous reads behind independent work.
+static bool isPureTiedInlineAsm(const MachineInstr &MI) {
+  if (MI.getOpcode() != TargetOpcode::INLINEASM ||
+      MI.getOperand(InlineAsm::MIOp_AsmString).getSymbolName()[0] ||
+      (MI.getOperand(InlineAsm::MIOp_ExtraInfo).getImm() &
+       ~InlineAsm::Extra_AsmDialect))
+    return false;
+
+  bool HasDef = false;
+  for (unsigned I = InlineAsm::MIOp_FirstOperand, E = MI.getNumOperands();
+       I != E; ++I) {
+    const MachineOperand &MO = MI.getOperand(I);
+    if (MO.isRegMask())
+      return false;
+    if (!MO.isReg())
+      continue;
+    if (!MO.getReg().isPhysical() || MO.isImplicit() || MO.isUndef() ||
+        MO.isEarlyClobber())
+      return false;
+    unsigned Tied;
+    if (MO.isDef()) {
+      HasDef = true;
+      if (!MI.isRegTiedToUseOperand(I, &Tied))
+        return false;
+    } else if (!MI.isRegTiedToDefOperand(I, &Tied)) {
+      return false;
+    }
+    const MachineOperand &Other = MI.getOperand(Tied);
+    if (MO.getReg() != Other.getReg() || MO.getSubReg() != Other.getSubReg())
+      return false;
+  }
+  return HasDef;
+}
+
+bool GCNPostSchedStrategy::tryCandidate(SchedCandidate &Cand,
+                                        SchedCandidate &TryCand) {
+  if (!PostRALDSPriority || !Cand.isValid() || !Cand.AtTop || !TryCand.AtTop ||
+      !Cand.Policy.ReduceLatency)
+    return PostGenericScheduler::tryCandidate(Cand, TryCand);
+
+  // Probe with a fresh reason so that a losing comparison reports the
+  // heuristic that decided this pair, rather than an earlier candidate's
+  // reason. The generic comparisons may lower the incumbent's reason.
+  SchedCandidate ProbeCand = Cand;
+  ProbeCand.Reason = NodeOrder;
+  SchedCandidate ProbeTryCand = TryCand;
+  ProbeTryCand.Reason = NoCand;
+  bool PreferTry = PostGenericScheduler::tryCandidate(ProbeCand, ProbeTryCand);
+  CandReason Reason = PreferTry ? ProbeTryCand.Reason : ProbeCand.Reason;
+
+  // Preserve stall, clustering, resource, and depth decisions. Only the
+  // remaining-path and instruction-order comparisons use the LDS priority.
+  if (Reason != TopPathReduce && Reason != NodeOrder) {
+    TryCand.Reason = ProbeTryCand.Reason;
+    if (!PreferTry && Cand.Reason > Reason)
+      Cand.Reason = Reason;
+    return PreferTry;
+  }
+
+  const SIInstrInfo *TII = static_cast<const SIInstrInfo *>(DAG->TII);
+  auto GetPriority = [TII](const SUnit &SU) -> uint64_t {
+    const MachineInstr &MI = *SU.getInstr();
+    uint64_t Priority = SU.getHeight();
+    if (TII->isDS(MI) && MI.mayLoad() && !MI.mayStore() &&
+        !MI.hasUnmodeledSideEffects() && !MI.hasOrderedMemoryRef()) {
+      const MachineOperand *GDS = TII->getNamedOperand(MI, AMDGPU::OpName::gds);
+      if (!GDS || !GDS->getImm()) {
+        for (const SDep &Dep : SU.Succs) {
+          const SUnit *Succ = Dep.getSUnit();
+          if (Dep.getKind() == SDep::Data && !Dep.isArtificial() &&
+              Dep.getLatency() == 0 && Succ->getInstr() &&
+              isPureTiedInlineAsm(*Succ->getInstr())) {
+            // A different successor may already include the modeled load
+            // latency. Add it only to the path through this tied asm.
+            Priority =
+                std::max(Priority, uint64_t(Succ->getHeight()) + SU.Latency);
+          }
+        }
+      }
+    }
+    return Priority;
+  };
+
+  // Issue grouped asynchronous LDS reads earlier when their downstream paths
+  // are comparable. Bound the priority increase by the modeled node latency;
+  // keep this opt-in pending qualification on GPU workloads.
+  uint64_t TryPriority = GetPriority(*TryCand.SU);
+  uint64_t CandPriority = GetPriority(*Cand.SU);
+  TryCand.Reason = NoCand;
+  if (TryPriority > CandPriority) {
+    TryCand.Reason = TopPathReduce;
+    return true;
+  }
+  if (TryPriority < CandPriority) {
+    if (Cand.Reason > TopPathReduce)
+      Cand.Reason = TopPathReduce;
+    return false;
+  }
+
+  // Match the generic fallback, including leaving the incumbent's reason
+  // unchanged when it wins on instruction order.
+  if (TryCand.SU->NodeNum < Cand.SU->NodeNum) {
+    TryCand.Reason = NodeOrder;
+    return true;
+  }
+  return false;
 }
 
 static bool hasIGLPInstrs(ScheduleDAGInstrs *DAG) {

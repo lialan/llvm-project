@@ -824,6 +824,15 @@ private:
   unsigned SavedVGPRCriticalLimit = 0;
 };
 
+class GCNPostSchedStrategy final : public PostGenericScheduler {
+protected:
+  bool tryCandidate(SchedCandidate &Cand, SchedCandidate &TryCand) override;
+
+public:
+  explicit GCNPostSchedStrategy(const MachineSchedContext *C)
+      : PostGenericScheduler(C) {}
+};
+
 class GCNPostScheduleDAGMILive final : public ScheduleDAGMI {
 private:
   std::vector<std::unique_ptr<ScheduleDAGMutation>> SavedMutations;

@@ -121,6 +121,10 @@ public:
   // increasing ILP and preserving VGPRs.
   bool KnownExcessRP = false;
 
+  // The current region supplies an explicit instruction-group scheduling
+  // policy.
+  bool HasIGLPInstrs = false;
+
   // An error margin is necessary because of poor performance of the generic RP
   // tracker and can be adjusted up for tuning heuristics to try and more
   // aggressively reduce register pressure.

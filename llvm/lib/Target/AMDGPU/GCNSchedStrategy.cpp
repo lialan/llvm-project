@@ -765,6 +765,14 @@ bool GCNSchedStrategy::tryPendingCandidate(SchedCandidate &Cand,
 
   bool SameBoundary = Zone != nullptr;
   if (SameBoundary) {
+    // Resource preferences may promote ready nodes left pending by the queue
+    // limit. Preserve pressure preferences above and explicit IGLP schedules.
+    unsigned ReadyCycle =
+        Zone->isTop() ? TryCand.SU->TopReadyCycle : TryCand.SU->BotReadyCycle;
+    if (!HasIGLPInstrs &&
+        (ReadyCycle > Zone->getCurrCycle() || Zone->checkHazard(TryCand.SU)))
+      return false;
+
     TryCand.initResourceDelta(DAG, SchedModel);
     if (tryLess(TryCand.ResDelta.CritResources, Cand.ResDelta.CritResources,
                 TryCand, Cand, ResourceReduce))
@@ -1841,6 +1849,7 @@ bool GCNSchedStage::initGCNRegion() {
 
   S.HasHighPressure = false;
   S.KnownExcessRP = isRegionWithExcessRP();
+  S.HasIGLPInstrs = DAG.RegionsWithIGLPInstrs[RegionIdx];
 
   if (DAG.RegionsWithIGLPInstrs[RegionIdx] &&
       StageID != GCNSchedStageID::UnclusteredHighRPReschedule) {

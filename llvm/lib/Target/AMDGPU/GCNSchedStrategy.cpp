@@ -132,6 +132,13 @@ static cl::opt<unsigned, false, VGPRThresholdParser> VGPRThresholdPercentOpt(
 
 const unsigned ScheduleMetrics::ScaleFactor = 100;
 
+static bool hasIGLPInstrs(ScheduleDAGInstrs *DAG) {
+  const SIInstrInfo *SII = static_cast<const SIInstrInfo *>(DAG->TII);
+  return any_of(*DAG, [SII](MachineBasicBlock::iterator MI) {
+    return SII->isIGLPMutationOnly(MI->getOpcode());
+  });
+}
+
 GCNSchedStrategy::GCNSchedStrategy(const MachineSchedContext *C)
     : GenericScheduler(C), TargetOccupancy(0), MF(nullptr),
       DownwardTracker(*C->LIS), UpwardTracker(*C->LIS), HasHighPressure(false) {
@@ -142,6 +149,7 @@ GCNSchedStrategy::GCNSchedStrategy(const MachineSchedContext *C)
 void GCNSchedStrategy::initialize(ScheduleDAGMI *DAG) {
   GenericScheduler::initialize(DAG);
 
+  HasIGLPInstrs = hasIGLPInstrs(DAG);
   MF = &DAG->MF;
 
   const GCNSubtarget &ST = MF->getSubtarget<GCNSubtarget>();
@@ -1849,7 +1857,6 @@ bool GCNSchedStage::initGCNRegion() {
 
   S.HasHighPressure = false;
   S.KnownExcessRP = isRegionWithExcessRP();
-  S.HasIGLPInstrs = DAG.RegionsWithIGLPInstrs[RegionIdx];
 
   if (DAG.RegionsWithIGLPInstrs[RegionIdx] &&
       StageID != GCNSchedStageID::UnclusteredHighRPReschedule) {
@@ -3255,13 +3262,6 @@ void GCNScheduleDAGMILive::setTargetOccupancy(unsigned TargetOccupancy) {
     MFI.increaseOccupancy(MF, MinOccupancy);
   else
     MFI.limitOccupancy(MinOccupancy);
-}
-
-static bool hasIGLPInstrs(ScheduleDAGInstrs *DAG) {
-  const SIInstrInfo *SII = static_cast<const SIInstrInfo *>(DAG->TII);
-  return any_of(*DAG, [SII](MachineBasicBlock::iterator MI) {
-    return SII->isIGLPMutationOnly(MI->getOpcode());
-  });
 }
 
 GCNPostScheduleDAGMILive::GCNPostScheduleDAGMILive(

@@ -1,0 +1,82 @@
+# RUN: llc -mtriple=amdgpu9.50-amd-amdhsa -run-pass=machine-scheduler -misched-limit=2 -verify-machineinstrs -verify-misched -debug-only=machine-scheduler -o /dev/null %s 2>&1 | FileCheck %s
+# REQUIRES: asserts
+
+# Availability on this buffered model does not imply a zero latency wait.
+# The conversion and pending MFMA both have a four-cycle bottom-up wait.
+# The conservative readiness policy still rejects the MFMA's resource-only
+# promotion: equal positive waits are intentionally not treated as ready.
+# Physical-register and pressure preferences are tested separately.
+# CHECK-LABEL: equal_nonzero_stalls:%bb.1
+# CHECK: Queue BotQ.P: 2 1{{ *$}}
+# CHECK-NEXT: Queue BotQ.A: 3 4
+# CHECK: Pending Q:
+# CHECK-NEXT: Prefer:{{.*}}SU(4):{{.*}}V_CVT_F32_U32
+# CHECK-NEXT: Not:{{.*}}SU(2):{{.*}}V_MFMA
+# CHECK-NEXT: Reason:{{.*}}Cand SU(4) STALL
+# CHECK: Scheduling SU(4) %low:{{.*}}V_CVT_F32_U32
+# CHECK-NEXT: Bottom Pressure:
+# CHECK-NEXT: Ready @4c
+
+# The one-cycle move also wins when the pending MFMA's wait is longer.
+# CHECK-LABEL: unequal_nonzero_stalls:%bb.1
+# CHECK: Queue BotQ.P: 2 1{{ *$}}
+# CHECK-NEXT: Queue BotQ.A: 3 4
+# CHECK: Pending Q:
+# CHECK-NEXT: Prefer:{{.*}}SU(4):{{.*}}V_MOV_B32
+# CHECK-NEXT: Not:{{.*}}SU(2):{{.*}}V_MFMA
+# CHECK-NEXT: Reason:{{.*}}Cand SU(4) STALL
+# CHECK: Scheduling SU(4) %low:{{.*}}V_MOV_B32
+# CHECK-NEXT: Bottom Pressure:
+# CHECK-NEXT: Ready @1c
+
+--- |
+  define amdgpu_kernel void @equal_nonzero_stalls() #0 { ret void }
+  define amdgpu_kernel void @unequal_nonzero_stalls() #0 { ret void }
+  attributes #0 = { "amdgpu-waves-per-eu"="1,1" }
+...
+---
+name: equal_nonzero_stalls
+tracksRegLiveness: true
+machineFunctionInfo:
+  isEntryFunction: true
+  occupancy: 1
+body: |
+  bb.0:
+    %a:vreg_128_align2 = IMPLICIT_DEF
+    %b:vreg_128_align2 = IMPLICIT_DEF
+    %c:vreg_128_align2 = IMPLICIT_DEF
+    %d:vreg_128_align2 = IMPLICIT_DEF
+    %addr:vreg_64 = IMPLICIT_DEF
+    S_BRANCH %bb.1
+
+  bb.1:
+    %r0:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %b, %c, 0, 0, 0, implicit $mode, implicit $exec
+    %r1:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %b, %d, 0, 0, 0, implicit $mode, implicit $exec
+    %r2:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %b, %d, 0, 0, 0, implicit $mode, implicit $exec
+    %load:vreg_128_align2 = DS_READ_B128_gfx9 %r0.sub0, 0, 0, implicit $exec
+    %low:vgpr_32 = V_CVT_F32_U32_e32 %a.sub0, implicit $mode, implicit $exec
+    S_ENDPGM 0, implicit %low, implicit %r0, implicit %r1, implicit %r2, implicit %load, implicit %a, implicit %b, implicit %c, implicit %d, implicit %addr
+...
+---
+name: unequal_nonzero_stalls
+tracksRegLiveness: true
+machineFunctionInfo:
+  isEntryFunction: true
+  occupancy: 1
+body: |
+  bb.0:
+    %a:vreg_128_align2 = IMPLICIT_DEF
+    %b:vreg_128_align2 = IMPLICIT_DEF
+    %c:vreg_128_align2 = IMPLICIT_DEF
+    %d:vreg_128_align2 = IMPLICIT_DEF
+    %addr:vreg_64 = IMPLICIT_DEF
+    S_BRANCH %bb.1
+
+  bb.1:
+    %r0:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %b, %c, 0, 0, 0, implicit $mode, implicit $exec
+    %r1:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %b, %d, 0, 0, 0, implicit $mode, implicit $exec
+    %r2:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %b, %d, 0, 0, 0, implicit $mode, implicit $exec
+    %load:vreg_128_align2 = DS_READ_B128_gfx9 %r0.sub0, 0, 0, implicit $exec
+    %low:vgpr_32 = V_MOV_B32_e32 1, implicit $exec
+    S_ENDPGM 0, implicit %low, implicit %r0, implicit %r1, implicit %r2, implicit %load, implicit %a, implicit %b, implicit %c, implicit %d, implicit %addr
+...

@@ -1,0 +1,114 @@
+# RUN: llc -mtriple=amdgpu9.50-amd-amdhsa -run-pass=machine-scheduler -misched=gcn-iterative-max-occupancy-experimental -misched-limit=2 -verify-machineinstrs -verify-misched -debug-only=machine-scheduler -o /dev/null %s 2>&1 | FileCheck %s
+# REQUIRES: asserts
+
+# The iterative scheduler initializes its legacy strategy without going through
+# GCNSchedStage. Honor the explicit IGLP policy in bb.1 even when its resource
+# preference selects a stalled MFMA. Reset that exception before scheduling bb.2,
+# where the ready COPY must precede the pending MFMA.
+# CHECK-LABEL: Scheduling pending_iglp_regions:%bb.1
+# CHECK: Scheduling SU(2) %r0:
+# CHECK-NOT: Scheduling SU(4)
+# CHECK: Scheduling SU(13) %r0_1:
+# CHECK: Scheduling SU(4) %pack.sub4:
+# CHECK-LABEL: Scheduling pending_iglp_regions:%bb.2
+# CHECK: Scheduling SU(2) %nr0:
+# CHECK-NOT: Scheduling SU(13)
+# CHECK: Scheduling SU(4) %pack.sub4:
+# CHECK: Scheduling SU(13) %nr0_1:
+
+--- |
+  define amdgpu_kernel void @pending_iglp_regions() #0 { ret void }
+  attributes #0 = { "amdgpu-waves-per-eu"="1,1" }
+...
+---
+name: pending_iglp_regions
+tracksRegLiveness: true
+machineFunctionInfo:
+  isEntryFunction: true
+  occupancy: 1
+body: |
+  bb.0:
+    %pack:vreg_192_align2 = IMPLICIT_DEF
+    %a:av_128_align2 = IMPLICIT_DEF
+    %b:av_128_align2 = IMPLICIT_DEF
+    %c:av_128_align2 = IMPLICIT_DEF
+    %d:av_128_align2 = IMPLICIT_DEF
+    %e:vreg_128_align2 = IMPLICIT_DEF
+    %f:av_128_align2 = IMPLICIT_DEF
+    %cond:sreg_64 = IMPLICIT_DEF
+    %y:vreg_128_align2 = IMPLICIT_DEF
+    %z:vreg_128_align2 = IMPLICIT_DEF
+    S_BRANCH %bb.1
+
+  bb.1:
+    successors: %bb.2(0x04000000), %bb.1(0x7c000000)
+
+    %pack.sub4:vreg_192_align2 = COPY %pack.sub2
+    %pack.sub5:vreg_192_align2 = COPY %pack.sub2
+    %r0:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %pack.sub2_sub3_sub4_sub5, 0, 0, 0, implicit $mode, implicit $exec
+    %pack.sub3:vreg_192_align2 = COPY %y.sub0
+    %pack.sub4:vreg_192_align2 = COPY %pack.sub2
+    %pack.sub5:vreg_192_align2 = COPY %pack.sub2
+    %r1:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %b, %a, %pack.sub2_sub3_sub4_sub5, 0, 0, 0, implicit $mode, implicit $exec
+    %pack.sub1:vreg_192_align2 = COPY %pack.sub2
+    %pack.sub3:vreg_192_align2 = COPY %pack.sub2
+    %z.sub1:vreg_128_align2 = COPY %pack.sub2
+    %z.sub2:vreg_128_align2 = COPY %pack.sub2
+    %z.sub3:vreg_128_align2 = COPY %pack.sub2
+    %r2:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %c, %a, %z, 0, 0, 0, implicit $mode, implicit $exec
+    %r0_1:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %r0, 0, 0, 0, implicit $mode, implicit $exec
+    %r1_1:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %d, %a, %r1, 0, 0, 0, implicit $mode, implicit $exec
+    %r3:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %e, %a, %pack.sub0_sub1_sub2_sub3, 0, 0, 0, implicit $mode, implicit $exec
+    %r3_1:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %f, %a, %r3, 0, 0, 0, implicit $mode, implicit $exec
+    %r0_2:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %r0_1, 0, 0, 0, implicit $mode, implicit $exec
+    %r0_3:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %r0_2, 0, 0, 0, implicit $mode, implicit $exec
+    %r1_2:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %r1_1, 0, 0, 0, implicit $mode, implicit $exec
+    %y:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %r1_2, 0, 0, 0, implicit $mode, implicit $exec
+    %r3_2:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %r3_1, 0, 0, 0, implicit $mode, implicit $exec
+    %r3_3:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %r3_2, 0, 0, 0, implicit $mode, implicit $exec
+    %r2_1:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %r2, 0, 0, 0, implicit $mode, implicit $exec
+    %z:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %r2_1, 0, 0, 0, implicit $mode, implicit $exec
+    SCHED_GROUP_BARRIER 8, 1, 0
+    $vcc = COPY %cond
+    %pack.sub3:vreg_192_align2 = COPY %r0_3.sub0
+    %pack.sub0:vreg_192_align2 = COPY %r3_3.sub0
+    S_CBRANCH_VCCNZ %bb.1, implicit killed $vcc
+    S_BRANCH %bb.2
+
+  bb.2:
+    successors: %bb.3(0x04000000), %bb.2(0x7c000000)
+
+    %pack.sub4:vreg_192_align2 = COPY %pack.sub2
+    %pack.sub5:vreg_192_align2 = COPY %pack.sub2
+    %nr0:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %pack.sub2_sub3_sub4_sub5, 0, 0, 0, implicit $mode, implicit $exec
+    %pack.sub3:vreg_192_align2 = COPY %y.sub0
+    %pack.sub4:vreg_192_align2 = COPY %pack.sub2
+    %pack.sub5:vreg_192_align2 = COPY %pack.sub2
+    %nr1:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %b, %a, %pack.sub2_sub3_sub4_sub5, 0, 0, 0, implicit $mode, implicit $exec
+    %pack.sub1:vreg_192_align2 = COPY %pack.sub2
+    %pack.sub3:vreg_192_align2 = COPY %pack.sub2
+    %z.sub1:vreg_128_align2 = COPY %pack.sub2
+    %z.sub2:vreg_128_align2 = COPY %pack.sub2
+    %z.sub3:vreg_128_align2 = COPY %pack.sub2
+    %nr2:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %c, %a, %z, 0, 0, 0, implicit $mode, implicit $exec
+    %nr0_1:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %nr0, 0, 0, 0, implicit $mode, implicit $exec
+    %nr1_1:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %d, %a, %nr1, 0, 0, 0, implicit $mode, implicit $exec
+    %nr3:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %e, %a, %pack.sub0_sub1_sub2_sub3, 0, 0, 0, implicit $mode, implicit $exec
+    %nr3_1:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %f, %a, %nr3, 0, 0, 0, implicit $mode, implicit $exec
+    %nr0_2:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %nr0_1, 0, 0, 0, implicit $mode, implicit $exec
+    %nr0_3:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %nr0_2, 0, 0, 0, implicit $mode, implicit $exec
+    %nr1_2:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %nr1_1, 0, 0, 0, implicit $mode, implicit $exec
+    %y:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %nr1_2, 0, 0, 0, implicit $mode, implicit $exec
+    %nr3_2:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %nr3_1, 0, 0, 0, implicit $mode, implicit $exec
+    %nr3_3:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %nr3_2, 0, 0, 0, implicit $mode, implicit $exec
+    %nr2_1:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %nr2, 0, 0, 0, implicit $mode, implicit $exec
+    %z:vreg_128_align2 = V_MFMA_F32_16X16X32_BF16_vgprcd_e64 %a, %a, %nr2_1, 0, 0, 0, implicit $mode, implicit $exec
+    $vcc = COPY %cond
+    %pack.sub3:vreg_192_align2 = COPY %nr0_3.sub0
+    %pack.sub0:vreg_192_align2 = COPY %nr3_3.sub0
+    S_CBRANCH_VCCNZ %bb.2, implicit killed $vcc
+    S_BRANCH %bb.3
+
+  bb.3:
+    S_ENDPGM 0
+...

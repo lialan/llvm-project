@@ -615,7 +615,7 @@ SUnit *GCNSchedStrategy::pickNodeBidirectional(bool &IsTopNode,
 
   TryCand.Reason = NoCand;
   if (BotPending || TopPending) {
-    PickedPending |= tryPendingCandidate(Cand, TopCand, nullptr);
+    PickedPending |= tryPendingCandidate(Cand, TryCand, nullptr);
   } else {
     tryCandidate(Cand, TryCand, nullptr);
   }

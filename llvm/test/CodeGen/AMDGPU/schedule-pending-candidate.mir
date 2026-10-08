@@ -1,0 +1,36 @@
+# REQUIRES: asserts
+# RUN: llc -mtriple=amdgpu9.50-amd-amdhsa -run-pass=machine-scheduler -misched-limit=2 -verify-machineinstrs -debug-only=machine-scheduler -o /dev/null %s 2>&1 | FileCheck %s
+# RUN: llc -mtriple=amdgpu9.50-amd-amdhsa -run-pass=machine-scheduler -misched-limit=2 -verify-machineinstrs -verify-misched -debug-only=machine-scheduler -o /dev/null %s 2>&1 | FileCheck %s
+
+# The top available queue fills with the fence and the unused definition, so
+# the physical-register copy is held in the pending queue. Its physical-register
+# preference wins against the bottom candidate. Record that preference in the
+# local TryCand that is checked when choosing the winner, not in cached TopCand.
+# Losing this preference also leaves a stale top candidate after the bottom
+# scheduler consumes the copy's user, which -verify-misched detects.
+# CHECK: Top Cand:{{ *}}Cand SU(2) PHYS-REG
+# CHECK-NEXT: Bot Cand:{{ *}}Cand SU(1) STALL
+# CHECK-NEXT: Picking:{{ *}}Cand SU(2) PHYS-REG
+# CHECK: Scheduling SU(2) $m0 = COPY
+
+--- |
+  define amdgpu_kernel void @pending_physreg() { ret void }
+...
+---
+name: pending_physreg
+tracksRegLiveness: true
+body: |
+  bb.0:
+    successors: %bb.1
+    %v:vgpr_32 = IMPLICIT_DEF
+    %s:sreg_32 = IMPLICIT_DEF
+    %rsrc:sgpr_128 = IMPLICIT_DEF
+    S_BRANCH %bb.1
+
+  bb.1:
+    ATOMIC_FENCE 5, 2
+    %unused:sreg_32 = IMPLICIT_DEF
+    $m0 = COPY undef %s
+    BUFFER_LOAD_DWORDX4_LDS_OFFEN undef %v, undef %rsrc, 0, 0, 0, 0, 1, implicit $exec, implicit $m0 :: (load (s128), align 1, addrspace 8), (store (s8192), align 1, addrspace 3)
+    S_ENDPGM 0
+...

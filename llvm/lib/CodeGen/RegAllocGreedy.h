@@ -332,7 +332,8 @@ private:
                        SmallVectorImpl<Register> &, const SmallVirtRegSet &);
   MCRegister tryEvict(const LiveInterval &, AllocationOrder &,
                       SmallVectorImpl<Register> &, uint8_t,
-                      const SmallVirtRegSet &);
+                      const SmallVirtRegSet &,
+                      bool OnlyRematerializable = false);
   MCRegister tryRegionSplit(const LiveInterval &, AllocationOrder &,
                             SmallVectorImpl<Register> &);
   /// Calculate cost of region splitting around the specified register.

@@ -373,6 +373,9 @@ foreach Index = 0...1023 in {
 
 // AccVGPR registers
 foreach Index = 0...255 in {
+  // On targets with a unified register file, try reusing VGPRs before
+  // increasing AGPR usage. A small AGPR allocation can reduce occupancy.
+  let CostPerUse = [0, 1] in
   defm AGPR#Index :
       SIRegLo16 <"a"#Index, Index, isVGPR = false, isAGPR = true, DwarfEncodings =
                  [!add(Index, 3072), !add(Index, 2048)]>;

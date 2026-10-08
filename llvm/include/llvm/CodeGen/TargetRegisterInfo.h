@@ -232,6 +232,14 @@ public:
     return SubRegIndexStrings + SubRegIndexNameOffsets[SubIdx - 1];
   }
 
+  /// Prefer rematerialization to assigning PhysReg. The allocator may evict
+  /// rematerializable values from cheaper registers or rematerialize a split
+  /// fragment feeding a single copy. Register costs and eviction legality
+  /// still apply.
+  virtual bool preferRematerializationForRegister(MCRegister PhysReg) const {
+    return false;
+  }
+
   /// Get the size of the bit range covered by a sub-register index.
   /// If the index isn't continuous, return the sum of the sizes of its parts.
   /// If the index is used to access subregisters of different sizes, return -1.

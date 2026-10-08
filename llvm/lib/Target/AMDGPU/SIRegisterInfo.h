@@ -111,6 +111,9 @@ public:
                                        CallingConv::ID) const override;
   const uint32_t *getNoPreservedMask() const override;
 
+  unsigned getRegisterCostTableIndex(const MachineFunction &MF) const override;
+  bool preferRematerializationForRegister(MCRegister PhysReg) const override;
+
   // Functions with the amdgpu_cs_chain or amdgpu_cs_chain_preserve calling
   // conventions are free to use certain VGPRs without saving and restoring any
   // lanes (not even inactive ones).

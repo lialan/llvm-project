@@ -579,7 +579,9 @@ MCRegister RAGreedy::tryAssign(const LiveInterval &VirtReg,
 
   LLVM_DEBUG(dbgs() << printReg(PhysReg, TRI) << " is available at cost "
                     << (unsigned)Cost << '\n');
-  MCRegister CheapReg = tryEvict(VirtReg, Order, NewVRegs, Cost, FixedRegisters);
+  MCRegister CheapReg =
+      tryEvict(VirtReg, Order, NewVRegs, Cost, FixedRegisters,
+               TRI->preferRematerializationForRegister(PhysReg));
   return CheapReg ? CheapReg : PhysReg;
 }
 
@@ -719,14 +721,31 @@ MCRegister RAGreedy::tryEvict(const LiveInterval &VirtReg,
                               AllocationOrder &Order,
                               SmallVectorImpl<Register> &NewVRegs,
                               uint8_t CostPerUseLimit,
-                              const SmallVirtRegSet &FixedRegisters) {
+                              const SmallVirtRegSet &FixedRegisters,
+                              bool OnlyRematerializable) {
   NamedRegionTimer T("evict", "Evict", TimerGroupName, TimerGroupDescription,
                      TimePassesIsEnabled);
 
   MCRegister BestPhys = EvictAdvisor->tryFindEvictionCandidate(
       VirtReg, Order, CostPerUseLimit, FixedRegisters);
-  if (BestPhys.isValid())
+  if (BestPhys.isValid()) {
+    // When a free register is available, a target's rematerialization
+    // preference must not introduce spills of values that cannot be recomputed.
+    if (OnlyRematerializable) {
+      SmallPtrSet<const LiveInterval *, 8> Seen;
+      for (MCRegUnit Unit : TRI->regunits(BestPhys)) {
+        for (const LiveInterval *Intf :
+             Matrix->query(VirtReg, Unit).interferingVRegs()) {
+          if (Seen.insert(Intf).second &&
+              (!Intf->isSpillable() ||
+               !VirtRegAuxInfo::isRematerializable(*Intf, *LIS, *VRM, *MRI,
+                                                 *TII)))
+            return MCRegister();
+        }
+      }
+    }
     evictInterference(VirtReg, BestPhys, NewVRegs);
+  }
   return BestPhys;
 }
 
@@ -2677,6 +2696,23 @@ MCRegister RAGreedy::selectOrSplitImpl(const LiveInterval &VirtReg,
         // Return now if we decide to use a CSR or create new vregs due to
         // pre-splitting.
         return CSRReg;
+    } else if (NewVRegs.empty() &&
+               RegCosts[PhysReg.id()] >
+                   RegClassInfo.getMinCost(MRI->getRegClass(VirtReg.reg())) &&
+               TRI->preferRematerializationForRegister(PhysReg) &&
+               ExtraInfo->getStage(VirtReg) == RS_Spill &&
+               VirtReg.isSpillable() &&
+               MRI->hasOneNonDBGUse(VirtReg.reg()) &&
+               MRI->use_nodbg_begin(VirtReg.reg())->getParent()->isCopy() &&
+               VirtRegAuxInfo::isRematerializable(VirtReg, *LIS, *VRM, *MRI,
+                                                *TII)) {
+      // Splitting left a rematerializable value feeding just one copy. Give
+      // the spiller a chance to replace that copy with its defining
+      // instruction instead of keeping the fragment in an expensive register.
+      // Cheaper eviction was already considered by tryAssign. Skip further
+      // eviction below and let the spiller rematerialize this fragment.
+      CostPerUseLimit =
+          RegClassInfo.getMinCost(MRI->getRegClass(VirtReg.reg()));
     } else
       return PhysReg;
   }

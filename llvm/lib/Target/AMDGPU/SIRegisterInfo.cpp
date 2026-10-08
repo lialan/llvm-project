@@ -32,6 +32,11 @@ using namespace llvm;
 #define GET_REGINFO_TARGET_DESC
 #include "AMDGPUGenRegisterInfo.inc"
 
+static cl::opt<bool> EnableAGPRAllocationCost(
+    "amdgpu-regalloc-agpr-cost", cl::Hidden, cl::init(true),
+    cl::desc("Prefer reusing VGPRs to allocating AGPRs on unified-register "
+             "targets"));
+
 static cl::opt<bool> EnableSpillSGPRToVGPR(
   "amdgpu-spill-sgpr-to-vgpr",
   cl::desc("Enable spilling SGPRs to VGPRs"),
@@ -472,6 +477,41 @@ const uint32_t *SIRegisterInfo::getCallPreservedMask(const MachineFunction &MF,
 
 const uint32_t *SIRegisterInfo::getNoPreservedMask() const {
   return CSR_AMDGPU_NoRegs_RegMask;
+}
+
+unsigned
+SIRegisterInfo::getRegisterCostTableIndex(const MachineFunction &MF) const {
+  if (!EnableAGPRAllocationCost || !ST.hasGFX90AInsts())
+    return 0;
+
+  // This preference protects kernel occupancy. At occupancy one, using the
+  // other register bank cannot cause a further occupancy drop.
+  const auto *MFI = MF.getInfo<SIMachineFunctionInfo>();
+  if (!MFI->isEntryFunction() || MFI->getOccupancy() <= 1)
+    return 0;
+
+  // Model the cost of starting to use the AGPR bank. If the function already
+  // requires AGPRs, preferring VGPRs can add unnecessary transfers between
+  // banks without avoiding that cost.
+  const MachineRegisterInfo &MRI = MF.getRegInfo();
+  for (unsigned I = 0, E = MRI.getNumVirtRegs(); I != E; ++I) {
+    Register Reg = Register::index2VirtReg(I);
+    if (!MRI.reg_nodbg_empty(Reg) && isAGPRClass(MRI.getRegClass(Reg)))
+      return 0;
+  }
+  for (MCPhysReg Reg : AMDGPU::AGPR_32RegClass)
+    if (MRI.isPhysRegUsed(Reg, /*SkipRegMaskTest=*/true))
+      return 0;
+
+  return 1;
+}
+
+bool SIRegisterInfo::preferRematerializationForRegister(
+    MCRegister PhysReg) const {
+  // Retaining a split fragment in AGPRs can cross a unified-register occupancy
+  // boundary even when recomputing it at its copy use needs no extra registers.
+  const TargetRegisterClass *RC = getPhysRegBaseClass(PhysReg);
+  return ST.hasGFX90AInsts() && RC && isAGPRClass(RC);
 }
 
 bool SIRegisterInfo::isChainScratchRegister(Register VGPR) {

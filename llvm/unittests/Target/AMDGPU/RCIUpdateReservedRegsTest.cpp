@@ -8,6 +8,7 @@
 
 #include "AMDGPUUnitTests.h"
 #include "MCTargetDesc/AMDGPUMCTargetDesc.h"
+#include "SIRegisterInfo.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
@@ -110,6 +111,55 @@ body:             |
   Recomputed.runOnMachineFunction(MF);
 
   expectEqual(Incremental, Recomputed, TRI);
+}
+
+class RegisterClassCostTest : public AMDGPUCodeGenTestBase {
+public:
+  void SetUp() override { setUpImpl("amdgpu9.50-amd-amdhsa", "", ""); }
+};
+
+TEST_F(RegisterClassCostTest, NoAGPRPreferenceForCallablesOrRequiredAGPRs) {
+  ASSERT_TRUE(parseMIR(R"MIR(
+---
+name: callable
+machineFunctionInfo:
+  isEntryFunction: false
+  occupancy: 2
+body: |
+  bb.0:
+    S_ENDPGM 0
+...
+---
+name: required_agpr_virtual
+machineFunctionInfo:
+  isEntryFunction: true
+  occupancy: 2
+body: |
+  bb.0:
+    S_NOP 0, implicit-def %0:agpr_32
+    S_NOP 0, implicit %0
+    S_ENDPGM 0
+...
+---
+name: required_agpr_physical
+machineFunctionInfo:
+  isEntryFunction: true
+  occupancy: 2
+body: |
+  bb.0:
+    S_NOP 0, implicit-def $agpr0_agpr1
+    S_NOP 0, implicit $agpr0_agpr1
+    S_ENDPGM 0
+...
+)MIR"));
+
+  for (StringRef Name : {"callable", "required_agpr_virtual",
+                         "required_agpr_physical"}) {
+    SCOPED_TRACE(Name);
+    MachineFunction &MF = getMF(Name);
+    const auto &TRI = *MF.getSubtarget().getRegisterInfo();
+    EXPECT_EQ(TRI.getRegisterCosts(MF)[AMDGPU::AGPR0], 0);
+  }
 }
 
 } // namespace

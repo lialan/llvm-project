@@ -5,7 +5,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "AArch64ISelLowering.h"
 #include "AArch64SelectionDAGInfo.h"
+#include "Utils/AArch64BaseInfo.h"
 #include "llvm/Analysis/MemoryLocation.h"
 #include "llvm/AsmParser/Parser.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
@@ -503,6 +505,182 @@ TEST_F(AArch64SelectionDAGTest, SimplifyDemandedBitsSVE) {
   TargetLowering::TargetLoweringOpt TLO(*DAG, false, false);
   EXPECT_TRUE(TL.SimplifyDemandedBits(Op, DemandedBits, Known, TLO));
   EXPECT_EQ(Known.Zero, APInt(8, 0xAA));
+}
+
+namespace {
+
+// Exercise the SimplifyDemandedBits contract by deliberately reporting
+// incorrect values for undemanded bits. Independent computeKnownBits queries
+// still use the real target's analysis of CSEL.
+class DemandedBitsTestLowering : public TargetLowering {
+  bool KnownZeroOutsideDemand;
+
+public:
+  DemandedBitsTestLowering(const TargetMachine &TM,
+                           const TargetSubtargetInfo &STI,
+                           bool KnownZeroOutsideDemand)
+      : TargetLowering(TM, STI),
+        KnownZeroOutsideDemand(KnownZeroOutsideDemand) {}
+
+  bool SimplifyDemandedBitsForTargetNode(SDValue Op, const APInt &DemandedBits,
+                                         const APInt &DemandedElts,
+                                         KnownBits &Known,
+                                         TargetLoweringOpt &TLO,
+                                         unsigned Depth) const override {
+    Known = TLO.DAG.computeKnownBits(Op, DemandedElts, Depth);
+    Known.Zero &= DemandedBits;
+    Known.One &= DemandedBits;
+    (KnownZeroOutsideDemand ? Known.Zero : Known.One) |= ~DemandedBits;
+    return false;
+  }
+};
+
+static SDValue getDemandedBitsTestCSEL(SelectionDAG &DAG, SDValue Value) {
+  SDLoc DL;
+  return DAG.getNode(AArch64ISD::CSEL, DL, Value.getValueType(), Value, Value,
+                     DAG.getConstant(AArch64CC::EQ, DL, MVT::i32),
+                     DAG.getRegister(AArch64::NZCV, MVT::i32));
+}
+
+} // namespace
+
+TEST_F(AArch64SelectionDAGTest, SimplifyDemandedBitsIndependentKnownBits) {
+  unsigned Reg = 1;
+  for (unsigned Opcode : {ISD::AND, ISD::OR}) {
+    SCOPED_TRACE(Opcode);
+    bool IsAnd = Opcode == ISD::AND;
+    DemandedBitsTestLowering TL(*TM, *STI, IsAnd);
+    SDLoc DL;
+    SDValue X = DAG->getRegister(Reg++, MVT::i32);
+    SDValue Y = DAG->getRegister(Reg++, MVT::i32);
+    SDValue LHS = getDemandedBitsTestCSEL(*DAG, X);
+    SDValue RHS =
+        DAG->getNode(Opcode, DL, MVT::i32, Y,
+                     DAG->getConstant(IsAnd ? ~1u : 1u, DL, MVT::i32));
+    SDValue Op = DAG->getNode(Opcode, DL, MVT::i32, LHS, RHS);
+    TargetLowering::TargetLoweringOpt TLO(*DAG, false, false);
+    KnownBits Known;
+
+    // RHS masks bit 0 when analyzing LHS. The returned information for that
+    // undemanded bit must not then be used to remove the mask from RHS.
+    EXPECT_FALSE(
+        TL.SimplifyDemandedBits(Op, APInt::getAllOnes(32), Known, TLO));
+    EXPECT_FALSE(TLO.Old);
+    EXPECT_EQ(IsAnd ? Known.Zero : Known.One, APInt(32, 1));
+    EXPECT_EQ(IsAnd ? Known.One : Known.Zero, APInt(32, 0));
+  }
+}
+
+TEST_F(AArch64SelectionDAGTest, SimplifyDemandedBitsPreserveKnownBitsOnRetry) {
+  unsigned Reg = 1;
+  for (unsigned Opcode : {ISD::AND, ISD::OR}) {
+    SCOPED_TRACE(Opcode);
+    bool IsAnd = Opcode == ISD::AND;
+    DemandedBitsTestLowering TL(*TM, *STI, !IsAnd);
+    SDLoc DL;
+    SDValue X = DAG->getRegister(Reg++, MVT::i32);
+    SDValue Y = DAG->getRegister(Reg++, MVT::i32);
+    SDValue LHS = getDemandedBitsTestCSEL(
+        *DAG, DAG->getNode(Opcode, DL, MVT::i32, X,
+                           DAG->getConstant(IsAnd ? ~3u : 3u, DL, MVT::i32)));
+    SDValue RHS = getDemandedBitsTestCSEL(
+        *DAG, DAG->getNode(Opcode, DL, MVT::i32, Y,
+                           DAG->getConstant(IsAnd ? ~1u : 1u, DL, MVT::i32)));
+    SDValue Op = DAG->getNode(Opcode, DL, MVT::i32, LHS, RHS);
+    TargetLowering::TargetLoweringOpt TLO(*DAG, false, false);
+    KnownBits Known;
+
+    // Both sides mask bit 0. The first RHS query proves this bit's value, but
+    // neither the reduced-demand LHS query nor the RHS retry has to preserve
+    // that information. Keep the original RHS result when the retry fails.
+    EXPECT_FALSE(
+        TL.SimplifyDemandedBits(Op, APInt::getAllOnes(32), Known, TLO));
+    EXPECT_FALSE(TLO.Old);
+    EXPECT_EQ(IsAnd ? Known.Zero : Known.One, APInt(32, 3));
+    EXPECT_EQ(IsAnd ? Known.One : Known.Zero, APInt(32, 0));
+  }
+}
+
+TEST_F(AArch64SelectionDAGTest, SimplifyDemandedBitsCommuted) {
+  const TargetLowering &TL = DAG->getTargetLoweringInfo();
+  unsigned Reg = 1;
+  for (unsigned Opcode : {ISD::AND, ISD::OR}) {
+    for (bool Commute : {false, true}) {
+      SCOPED_TRACE(Opcode);
+      SCOPED_TRACE(Commute);
+      SDLoc DL;
+      SDValue X = DAG->getRegister(Reg++, MVT::i32);
+      SDValue Y = DAG->getRegister(Reg++, MVT::i32);
+      SDValue Bounded = DAG->getNode(ISD::SRL, DL, MVT::i32, Y,
+                                     DAG->getConstant(24, DL, MVT::i32));
+      bool IsAnd = Opcode == ISD::AND;
+      if (!IsAnd)
+        Bounded = DAG->getNOT(DL, Bounded, MVT::i32);
+      SDValue Inner =
+          DAG->getNode(IsAnd ? ISD::OR : ISD::AND, DL, MVT::i32, X,
+                       DAG->getConstant(IsAnd ? 0xff00 : 0xff, DL, MVT::i32));
+      SDNodeFlags Flags;
+      Flags.setDisjoint(!IsAnd);
+      SDValue Op = DAG->getNode(Opcode, DL, MVT::i32, Commute ? Inner : Bounded,
+                                Commute ? Bounded : Inner, Flags);
+      TargetLowering::TargetLoweringOpt TLO(*DAG, false, false);
+      KnownBits Known;
+      EXPECT_TRUE(
+          TL.SimplifyDemandedBits(Op, APInt::getAllOnes(32), Known, TLO));
+      EXPECT_EQ(TLO.Old, Inner);
+      EXPECT_EQ(TLO.New, X);
+      EXPECT_FALSE(Op->getFlags().hasDisjoint());
+    }
+  }
+}
+
+TEST_F(AArch64SelectionDAGTest, SimplifyDemandedBitsCommutedPartialDemand) {
+  const TargetLowering &TL = DAG->getTargetLoweringInfo();
+  unsigned Reg = 1;
+  for (unsigned DemandedLanes : {1u, 3u}) {
+    SCOPED_TRACE(DemandedLanes);
+    SDLoc DL;
+    SDValue X = DAG->getRegister(Reg++, MVT::v2i32);
+    SDValue Y = DAG->getRegister(Reg++, MVT::i32);
+    SDValue LHS = DAG->getBuildVector(
+        MVT::v2i32, DL, {DAG->getConstant(0xff, DL, MVT::i32), Y});
+    SDValue RHS = DAG->getNode(ISD::OR, DL, MVT::v2i32, X,
+                               DAG->getConstant(0xff00, DL, MVT::v2i32));
+    SDValue Op = DAG->getNode(ISD::AND, DL, MVT::v2i32, LHS, RHS);
+    TargetLowering::TargetLoweringOpt TLO(*DAG, false, false);
+    KnownBits Known;
+    bool Changed = TL.SimplifyDemandedBits(
+        Op, APInt(32, ~1u), APInt(2, DemandedLanes), Known, TLO,
+        /*Depth=*/0, /*AssumeSingleUse=*/true);
+    EXPECT_EQ(Changed, DemandedLanes == 1);
+    if (Changed) {
+      EXPECT_EQ(TLO.Old, RHS);
+      EXPECT_EQ(TLO.New, X);
+    }
+  }
+}
+
+TEST_F(AArch64SelectionDAGTest, SimplifyDemandedBitsCommutedLimits) {
+  const TargetLowering &TL = DAG->getTargetLoweringInfo();
+  SDLoc DL;
+  SDValue X = DAG->getRegister(1, MVT::i32);
+  SDValue Y = DAG->getRegister(2, MVT::i32);
+  SDValue Bounded = DAG->getNode(ISD::SRL, DL, MVT::i32, Y,
+                                 DAG->getConstant(24, DL, MVT::i32));
+  SDValue Inner = DAG->getNode(ISD::OR, DL, MVT::i32, X,
+                               DAG->getConstant(0xff00, DL, MVT::i32));
+  SDValue Op = DAG->getNode(ISD::AND, DL, MVT::i32, Bounded, Inner);
+  TargetLowering::TargetLoweringOpt TLO(*DAG, false, false);
+  KnownBits Known;
+
+  EXPECT_FALSE(TL.SimplifyDemandedBits(Op, APInt::getAllOnes(32), Known, TLO,
+                                       SelectionDAG::MaxRecursionDepth - 1));
+  EXPECT_FALSE(TLO.Old);
+
+  // A separate user needs the bits which this AND would allow us to discard.
+  DAG->getNode(ISD::ADD, DL, MVT::i32, Inner, Y);
+  EXPECT_FALSE(TL.SimplifyDemandedBits(Op, APInt::getAllOnes(32), Known, TLO));
+  EXPECT_FALSE(TLO.Old);
 }
 
 // Piggy-backing on the AArch64 tests to verify SelectionDAG::computeKnownBits.

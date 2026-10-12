@@ -2493,6 +2493,27 @@ bool TargetLowering::SimplifyDemandedBits(
     if (NumSignBits >= NumDemandedUpperBits)
       return TLO.CombineTo(Op, TLO.DAG.getNode(BitOp, SDLoc(Op), VT, Op0, Op1));
 
+    // Low bits can only change which operand is selected if the demanded upper
+    // bits are equal. All bits above the lowest demanded bit must be preserved.
+    APInt HiMask = APInt::getHighBitsSet(BitWidth, NumDemandedUpperBits);
+    if (!HiMask.isAllOnes()) {
+      // Only bypass single-use operations that do not affect the demanded bits.
+      // Recursively simplifying operands can shrink AND constants, introducing
+      // masks that no longer fold into loads or narrowed operations.
+      SDValue DemandedOp0, DemandedOp1;
+      if (Op0.hasOneUse())
+        DemandedOp0 = SimplifyMultipleUseDemandedBits(Op0, HiMask, DemandedElts,
+                                                      TLO.DAG, Depth + 1);
+      if (Op1.hasOneUse())
+        DemandedOp1 = SimplifyMultipleUseDemandedBits(Op1, HiMask, DemandedElts,
+                                                      TLO.DAG, Depth + 1);
+      if (DemandedOp0 || DemandedOp1) {
+        Op0 = DemandedOp0 ? DemandedOp0 : Op0;
+        Op1 = DemandedOp1 ? DemandedOp1 : Op1;
+        return TLO.CombineTo(Op, TLO.DAG.getNode(Opc, dl, VT, Op0, Op1));
+      }
+    }
+
     // Check if one arg is always less/greater than (or equal) to the other arg.
     KnownBits Known0 = TLO.DAG.computeKnownBits(Op0, DemandedElts, Depth + 1);
     KnownBits Known1 = TLO.DAG.computeKnownBits(Op1, DemandedElts, Depth + 1);

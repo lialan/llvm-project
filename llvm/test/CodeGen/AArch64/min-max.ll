@@ -1662,3 +1662,379 @@ define void @umin4i64(<4 x i64> %a, <4 x i64> %b, ptr %p) {
   store <4 x i64> %c, ptr %p
   ret void
 }
+
+; Low bits cannot affect the high bits of an integer min/max.
+define i32 @minmax_low_bits_umin(i32 %x, i32 %y) {
+; CHECK-ISEL-LABEL: minmax_low_bits_umin:
+; CHECK-ISEL:       // %bb.0:
+; CHECK-ISEL-NEXT:    eor w8, w0, #0x80
+; CHECK-ISEL-NEXT:    eor w9, w1, #0x40
+; CHECK-ISEL-NEXT:    cmp w8, w9
+; CHECK-ISEL-NEXT:    csel w8, w8, w9, lo
+; CHECK-ISEL-NEXT:    lsr w0, w8, #8
+; CHECK-ISEL-NEXT:    ret
+;
+; CHECK-ISEL-CSSC-LABEL: minmax_low_bits_umin:
+; CHECK-ISEL-CSSC:       // %bb.0:
+; CHECK-ISEL-CSSC-NEXT:    umin w8, w0, w1
+; CHECK-ISEL-CSSC-NEXT:    lsr w0, w8, #8
+; CHECK-ISEL-CSSC-NEXT:    ret
+;
+; CHECK-GLOBAL-LABEL: minmax_low_bits_umin:
+; CHECK-GLOBAL:       // %bb.0:
+; CHECK-GLOBAL-NEXT:    eor w8, w0, #0x80
+; CHECK-GLOBAL-NEXT:    eor w9, w1, #0x40
+; CHECK-GLOBAL-NEXT:    cmp w8, w9
+; CHECK-GLOBAL-NEXT:    csel w8, w8, w9, lo
+; CHECK-GLOBAL-NEXT:    lsr w0, w8, #8
+; CHECK-GLOBAL-NEXT:    ret
+;
+; CHECK-GLOBAL-CSSC-LABEL: minmax_low_bits_umin:
+; CHECK-GLOBAL-CSSC:       // %bb.0:
+; CHECK-GLOBAL-CSSC-NEXT:    eor w8, w0, #0x80
+; CHECK-GLOBAL-CSSC-NEXT:    eor w9, w1, #0x40
+; CHECK-GLOBAL-CSSC-NEXT:    umin w8, w8, w9
+; CHECK-GLOBAL-CSSC-NEXT:    lsr w0, w8, #8
+; CHECK-GLOBAL-CSSC-NEXT:    ret
+  %a = xor i32 %x, 128
+  %b = xor i32 %y, 64
+  %c = icmp ult i32 %a, %b
+  %m = select i1 %c, i32 %a, i32 %b
+  %r = lshr i32 %m, 8
+  ret i32 %r
+}
+
+define i32 @minmax_low_bits_smin(i32 %x, i32 %y) {
+; CHECK-ISEL-LABEL: minmax_low_bits_smin:
+; CHECK-ISEL:       // %bb.0:
+; CHECK-ISEL-NEXT:    eor w8, w0, #0x80
+; CHECK-ISEL-NEXT:    eor w9, w1, #0x40
+; CHECK-ISEL-NEXT:    cmp w8, w9
+; CHECK-ISEL-NEXT:    csel w8, w8, w9, lt
+; CHECK-ISEL-NEXT:    lsr w0, w8, #8
+; CHECK-ISEL-NEXT:    ret
+;
+; CHECK-ISEL-CSSC-LABEL: minmax_low_bits_smin:
+; CHECK-ISEL-CSSC:       // %bb.0:
+; CHECK-ISEL-CSSC-NEXT:    smin w8, w0, w1
+; CHECK-ISEL-CSSC-NEXT:    lsr w0, w8, #8
+; CHECK-ISEL-CSSC-NEXT:    ret
+;
+; CHECK-GLOBAL-LABEL: minmax_low_bits_smin:
+; CHECK-GLOBAL:       // %bb.0:
+; CHECK-GLOBAL-NEXT:    eor w8, w0, #0x80
+; CHECK-GLOBAL-NEXT:    eor w9, w1, #0x40
+; CHECK-GLOBAL-NEXT:    cmp w8, w9
+; CHECK-GLOBAL-NEXT:    csel w8, w8, w9, lt
+; CHECK-GLOBAL-NEXT:    lsr w0, w8, #8
+; CHECK-GLOBAL-NEXT:    ret
+;
+; CHECK-GLOBAL-CSSC-LABEL: minmax_low_bits_smin:
+; CHECK-GLOBAL-CSSC:       // %bb.0:
+; CHECK-GLOBAL-CSSC-NEXT:    eor w8, w0, #0x80
+; CHECK-GLOBAL-CSSC-NEXT:    eor w9, w1, #0x40
+; CHECK-GLOBAL-CSSC-NEXT:    smin w8, w8, w9
+; CHECK-GLOBAL-CSSC-NEXT:    lsr w0, w8, #8
+; CHECK-GLOBAL-CSSC-NEXT:    ret
+  %a = xor i32 %x, 128
+  %b = xor i32 %y, 64
+  %c = icmp slt i32 %a, %b
+  %m = select i1 %c, i32 %a, i32 %b
+  %r = lshr i32 %m, 8
+  ret i32 %r
+}
+
+define i32 @minmax_low_bits_umax(i32 %x, i32 %y) {
+; CHECK-ISEL-LABEL: minmax_low_bits_umax:
+; CHECK-ISEL:       // %bb.0:
+; CHECK-ISEL-NEXT:    eor w8, w0, #0x80
+; CHECK-ISEL-NEXT:    eor w9, w1, #0x40
+; CHECK-ISEL-NEXT:    cmp w8, w9
+; CHECK-ISEL-NEXT:    csel w8, w8, w9, hi
+; CHECK-ISEL-NEXT:    lsr w0, w8, #8
+; CHECK-ISEL-NEXT:    ret
+;
+; CHECK-ISEL-CSSC-LABEL: minmax_low_bits_umax:
+; CHECK-ISEL-CSSC:       // %bb.0:
+; CHECK-ISEL-CSSC-NEXT:    umax w8, w0, w1
+; CHECK-ISEL-CSSC-NEXT:    lsr w0, w8, #8
+; CHECK-ISEL-CSSC-NEXT:    ret
+;
+; CHECK-GLOBAL-LABEL: minmax_low_bits_umax:
+; CHECK-GLOBAL:       // %bb.0:
+; CHECK-GLOBAL-NEXT:    eor w8, w0, #0x80
+; CHECK-GLOBAL-NEXT:    eor w9, w1, #0x40
+; CHECK-GLOBAL-NEXT:    cmp w8, w9
+; CHECK-GLOBAL-NEXT:    csel w8, w8, w9, hi
+; CHECK-GLOBAL-NEXT:    lsr w0, w8, #8
+; CHECK-GLOBAL-NEXT:    ret
+;
+; CHECK-GLOBAL-CSSC-LABEL: minmax_low_bits_umax:
+; CHECK-GLOBAL-CSSC:       // %bb.0:
+; CHECK-GLOBAL-CSSC-NEXT:    eor w8, w0, #0x80
+; CHECK-GLOBAL-CSSC-NEXT:    eor w9, w1, #0x40
+; CHECK-GLOBAL-CSSC-NEXT:    umax w8, w8, w9
+; CHECK-GLOBAL-CSSC-NEXT:    lsr w0, w8, #8
+; CHECK-GLOBAL-CSSC-NEXT:    ret
+  %a = xor i32 %x, 128
+  %b = xor i32 %y, 64
+  %c = icmp ugt i32 %a, %b
+  %m = select i1 %c, i32 %a, i32 %b
+  %r = lshr i32 %m, 8
+  ret i32 %r
+}
+
+define i32 @minmax_low_bits_smax(i32 %x, i32 %y) {
+; CHECK-ISEL-LABEL: minmax_low_bits_smax:
+; CHECK-ISEL:       // %bb.0:
+; CHECK-ISEL-NEXT:    eor w8, w0, #0x80
+; CHECK-ISEL-NEXT:    eor w9, w1, #0x40
+; CHECK-ISEL-NEXT:    cmp w8, w9
+; CHECK-ISEL-NEXT:    csel w8, w8, w9, gt
+; CHECK-ISEL-NEXT:    lsr w0, w8, #8
+; CHECK-ISEL-NEXT:    ret
+;
+; CHECK-ISEL-CSSC-LABEL: minmax_low_bits_smax:
+; CHECK-ISEL-CSSC:       // %bb.0:
+; CHECK-ISEL-CSSC-NEXT:    smax w8, w0, w1
+; CHECK-ISEL-CSSC-NEXT:    lsr w0, w8, #8
+; CHECK-ISEL-CSSC-NEXT:    ret
+;
+; CHECK-GLOBAL-LABEL: minmax_low_bits_smax:
+; CHECK-GLOBAL:       // %bb.0:
+; CHECK-GLOBAL-NEXT:    eor w8, w0, #0x80
+; CHECK-GLOBAL-NEXT:    eor w9, w1, #0x40
+; CHECK-GLOBAL-NEXT:    cmp w8, w9
+; CHECK-GLOBAL-NEXT:    csel w8, w8, w9, gt
+; CHECK-GLOBAL-NEXT:    lsr w0, w8, #8
+; CHECK-GLOBAL-NEXT:    ret
+;
+; CHECK-GLOBAL-CSSC-LABEL: minmax_low_bits_smax:
+; CHECK-GLOBAL-CSSC:       // %bb.0:
+; CHECK-GLOBAL-CSSC-NEXT:    eor w8, w0, #0x80
+; CHECK-GLOBAL-CSSC-NEXT:    eor w9, w1, #0x40
+; CHECK-GLOBAL-CSSC-NEXT:    smax w8, w8, w9
+; CHECK-GLOBAL-CSSC-NEXT:    lsr w0, w8, #8
+; CHECK-GLOBAL-CSSC-NEXT:    ret
+  %a = xor i32 %x, 128
+  %b = xor i32 %y, 64
+  %c = icmp sgt i32 %a, %b
+  %m = select i1 %c, i32 %a, i32 %b
+  %r = lshr i32 %m, 8
+  ret i32 %r
+}
+
+define i64 @minmax_low_bits_i64(i64 %x, i64 %y) {
+; CHECK-ISEL-LABEL: minmax_low_bits_i64:
+; CHECK-ISEL:       // %bb.0:
+; CHECK-ISEL-NEXT:    eor x8, x0, #0x80
+; CHECK-ISEL-NEXT:    eor x9, x1, #0x40
+; CHECK-ISEL-NEXT:    cmp x8, x9
+; CHECK-ISEL-NEXT:    csel x8, x8, x9, lo
+; CHECK-ISEL-NEXT:    lsr x0, x8, #8
+; CHECK-ISEL-NEXT:    ret
+;
+; CHECK-ISEL-CSSC-LABEL: minmax_low_bits_i64:
+; CHECK-ISEL-CSSC:       // %bb.0:
+; CHECK-ISEL-CSSC-NEXT:    umin x8, x0, x1
+; CHECK-ISEL-CSSC-NEXT:    lsr x0, x8, #8
+; CHECK-ISEL-CSSC-NEXT:    ret
+;
+; CHECK-GLOBAL-LABEL: minmax_low_bits_i64:
+; CHECK-GLOBAL:       // %bb.0:
+; CHECK-GLOBAL-NEXT:    eor x8, x0, #0x80
+; CHECK-GLOBAL-NEXT:    eor x9, x1, #0x40
+; CHECK-GLOBAL-NEXT:    cmp x8, x9
+; CHECK-GLOBAL-NEXT:    csel x8, x8, x9, lo
+; CHECK-GLOBAL-NEXT:    lsr x0, x8, #8
+; CHECK-GLOBAL-NEXT:    ret
+;
+; CHECK-GLOBAL-CSSC-LABEL: minmax_low_bits_i64:
+; CHECK-GLOBAL-CSSC:       // %bb.0:
+; CHECK-GLOBAL-CSSC-NEXT:    eor x8, x0, #0x80
+; CHECK-GLOBAL-CSSC-NEXT:    eor x9, x1, #0x40
+; CHECK-GLOBAL-CSSC-NEXT:    umin x8, x8, x9
+; CHECK-GLOBAL-CSSC-NEXT:    lsr x0, x8, #8
+; CHECK-GLOBAL-CSSC-NEXT:    ret
+  %a = xor i64 %x, 128
+  %b = xor i64 %y, 64
+  %c = icmp ult i64 %a, %b
+  %m = select i1 %c, i64 %a, i64 %b
+  %r = lshr i64 %m, 8
+  ret i64 %r
+}
+
+; The lowest demanded bit and all higher comparison bits must be preserved.
+define i32 @minmax_low_bits_needed(i32 %x, i32 %y) {
+; CHECK-ISEL-LABEL: minmax_low_bits_needed:
+; CHECK-ISEL:       // %bb.0:
+; CHECK-ISEL-NEXT:    eor w8, w0, #0x100
+; CHECK-ISEL-NEXT:    eor w9, w1, #0x40
+; CHECK-ISEL-NEXT:    cmp w8, w9
+; CHECK-ISEL-NEXT:    csel w8, w8, w9, lo
+; CHECK-ISEL-NEXT:    lsr w0, w8, #8
+; CHECK-ISEL-NEXT:    ret
+;
+; CHECK-ISEL-CSSC-LABEL: minmax_low_bits_needed:
+; CHECK-ISEL-CSSC:       // %bb.0:
+; CHECK-ISEL-CSSC-NEXT:    eor w8, w0, #0x100
+; CHECK-ISEL-CSSC-NEXT:    umin w8, w8, w1
+; CHECK-ISEL-CSSC-NEXT:    lsr w0, w8, #8
+; CHECK-ISEL-CSSC-NEXT:    ret
+;
+; CHECK-GLOBAL-LABEL: minmax_low_bits_needed:
+; CHECK-GLOBAL:       // %bb.0:
+; CHECK-GLOBAL-NEXT:    eor w8, w0, #0x100
+; CHECK-GLOBAL-NEXT:    eor w9, w1, #0x40
+; CHECK-GLOBAL-NEXT:    cmp w8, w9
+; CHECK-GLOBAL-NEXT:    csel w8, w8, w9, lo
+; CHECK-GLOBAL-NEXT:    lsr w0, w8, #8
+; CHECK-GLOBAL-NEXT:    ret
+;
+; CHECK-GLOBAL-CSSC-LABEL: minmax_low_bits_needed:
+; CHECK-GLOBAL-CSSC:       // %bb.0:
+; CHECK-GLOBAL-CSSC-NEXT:    eor w8, w0, #0x100
+; CHECK-GLOBAL-CSSC-NEXT:    eor w9, w1, #0x40
+; CHECK-GLOBAL-CSSC-NEXT:    umin w8, w8, w9
+; CHECK-GLOBAL-CSSC-NEXT:    lsr w0, w8, #8
+; CHECK-GLOBAL-CSSC-NEXT:    ret
+  %a = xor i32 %x, 256
+  %b = xor i32 %y, 64
+  %c = icmp ult i32 %a, %b
+  %m = select i1 %c, i32 %a, i32 %b
+  %r = lshr i32 %m, 8
+  ret i32 %r
+}
+
+define i32 @minmax_low_bits_high(i32 %x, i32 %y) {
+; CHECK-ISEL-LABEL: minmax_low_bits_high:
+; CHECK-ISEL:       // %bb.0:
+; CHECK-ISEL-NEXT:    eor w8, w0, #0x80000000
+; CHECK-ISEL-NEXT:    eor w9, w1, #0x40
+; CHECK-ISEL-NEXT:    cmp w8, w9
+; CHECK-ISEL-NEXT:    csel w8, w8, w9, lt
+; CHECK-ISEL-NEXT:    and w0, w8, #0xff00
+; CHECK-ISEL-NEXT:    ret
+;
+; CHECK-ISEL-CSSC-LABEL: minmax_low_bits_high:
+; CHECK-ISEL-CSSC:       // %bb.0:
+; CHECK-ISEL-CSSC-NEXT:    eor w8, w0, #0x80000000
+; CHECK-ISEL-CSSC-NEXT:    smin w8, w8, w1
+; CHECK-ISEL-CSSC-NEXT:    and w0, w8, #0xff00
+; CHECK-ISEL-CSSC-NEXT:    ret
+;
+; CHECK-GLOBAL-LABEL: minmax_low_bits_high:
+; CHECK-GLOBAL:       // %bb.0:
+; CHECK-GLOBAL-NEXT:    eor w8, w0, #0x80000000
+; CHECK-GLOBAL-NEXT:    eor w9, w1, #0x40
+; CHECK-GLOBAL-NEXT:    cmp w8, w9
+; CHECK-GLOBAL-NEXT:    csel w8, w8, w9, lt
+; CHECK-GLOBAL-NEXT:    and w0, w8, #0xff00
+; CHECK-GLOBAL-NEXT:    ret
+;
+; CHECK-GLOBAL-CSSC-LABEL: minmax_low_bits_high:
+; CHECK-GLOBAL-CSSC:       // %bb.0:
+; CHECK-GLOBAL-CSSC-NEXT:    eor w8, w0, #0x80000000
+; CHECK-GLOBAL-CSSC-NEXT:    eor w9, w1, #0x40
+; CHECK-GLOBAL-CSSC-NEXT:    smin w8, w8, w9
+; CHECK-GLOBAL-CSSC-NEXT:    and w0, w8, #0xff00
+; CHECK-GLOBAL-CSSC-NEXT:    ret
+  %a = xor i32 %x, -2147483648
+  %b = xor i32 %y, 64
+  %c = icmp slt i32 %a, %b
+  %m = select i1 %c, i32 %a, i32 %b
+  %r = and i32 %m, 65280
+  ret i32 %r
+}
+
+define <4 x i32> @minmax_low_bits_vector(<4 x i32> %x, <4 x i32> %y) {
+; CHECK-ISEL-LABEL: minmax_low_bits_vector:
+; CHECK-ISEL:       // %bb.0:
+; CHECK-ISEL-NEXT:    umin v0.4s, v0.4s, v1.4s
+; CHECK-ISEL-NEXT:    ushr v0.4s, v0.4s, #8
+; CHECK-ISEL-NEXT:    ret
+;
+; CHECK-ISEL-CSSC-LABEL: minmax_low_bits_vector:
+; CHECK-ISEL-CSSC:       // %bb.0:
+; CHECK-ISEL-CSSC-NEXT:    umin v0.4s, v0.4s, v1.4s
+; CHECK-ISEL-CSSC-NEXT:    ushr v0.4s, v0.4s, #8
+; CHECK-ISEL-CSSC-NEXT:    ret
+;
+; CHECK-GLOBAL-LABEL: minmax_low_bits_vector:
+; CHECK-GLOBAL:       // %bb.0:
+; CHECK-GLOBAL-NEXT:    movi v2.4s, #128
+; CHECK-GLOBAL-NEXT:    eor v0.16b, v0.16b, v2.16b
+; CHECK-GLOBAL-NEXT:    umin v0.4s, v0.4s, v1.4s
+; CHECK-GLOBAL-NEXT:    ushr v0.4s, v0.4s, #8
+; CHECK-GLOBAL-NEXT:    ret
+;
+; CHECK-GLOBAL-CSSC-LABEL: minmax_low_bits_vector:
+; CHECK-GLOBAL-CSSC:       // %bb.0:
+; CHECK-GLOBAL-CSSC-NEXT:    movi v2.4s, #128
+; CHECK-GLOBAL-CSSC-NEXT:    eor v0.16b, v0.16b, v2.16b
+; CHECK-GLOBAL-CSSC-NEXT:    umin v0.4s, v0.4s, v1.4s
+; CHECK-GLOBAL-CSSC-NEXT:    ushr v0.4s, v0.4s, #8
+; CHECK-GLOBAL-CSSC-NEXT:    ret
+  %a = xor <4 x i32> %x, <i32 128, i32 128, i32 128, i32 128>
+  %c = icmp ult <4 x i32> %a, %y
+  %m = select <4 x i1> %c, <4 x i32> %a, <4 x i32> %y
+  %r = lshr <4 x i32> %m, <i32 8, i32 8, i32 8, i32 8>
+  ret <4 x i32> %r
+}
+
+; Keep byte masks foldable into the loads instead of clearing undemanded bits.
+define i8 @minmax_low_bits_load_i8(ptr %px, ptr %py) {
+; CHECK-ISEL-LABEL: minmax_low_bits_load_i8:
+; CHECK-ISEL:       // %bb.0:
+; CHECK-ISEL-NEXT:    ldrb w8, [x0]
+; CHECK-ISEL-NEXT:    ldrb w9, [x1]
+; CHECK-ISEL-NEXT:    eor w8, w8, #0x4
+; CHECK-ISEL-NEXT:    eor w9, w9, #0x80
+; CHECK-ISEL-NEXT:    cmp w8, w9
+; CHECK-ISEL-NEXT:    csel w8, w8, w9, lo
+; CHECK-ISEL-NEXT:    and w0, w8, #0x44444444
+; CHECK-ISEL-NEXT:    ret
+;
+; CHECK-ISEL-CSSC-LABEL: minmax_low_bits_load_i8:
+; CHECK-ISEL-CSSC:       // %bb.0:
+; CHECK-ISEL-CSSC-NEXT:    ldrb w8, [x0]
+; CHECK-ISEL-CSSC-NEXT:    ldrb w9, [x1]
+; CHECK-ISEL-CSSC-NEXT:    eor w8, w8, #0x4
+; CHECK-ISEL-CSSC-NEXT:    eor w9, w9, #0x80
+; CHECK-ISEL-CSSC-NEXT:    umin w8, w8, w9
+; CHECK-ISEL-CSSC-NEXT:    and w0, w8, #0x44444444
+; CHECK-ISEL-CSSC-NEXT:    ret
+;
+; CHECK-GLOBAL-LABEL: minmax_low_bits_load_i8:
+; CHECK-GLOBAL:       // %bb.0:
+; CHECK-GLOBAL-NEXT:    ldrb w9, [x0]
+; CHECK-GLOBAL-NEXT:    ldrb w10, [x1]
+; CHECK-GLOBAL-NEXT:    mov w8, #68 // =0x44
+; CHECK-GLOBAL-NEXT:    eor w9, w9, #0x4
+; CHECK-GLOBAL-NEXT:    eor w10, w10, #0xffffff80
+; CHECK-GLOBAL-NEXT:    and w11, w9, #0xff
+; CHECK-GLOBAL-NEXT:    cmp w11, w10, uxtb
+; CHECK-GLOBAL-NEXT:    csel w9, w9, w10, lo
+; CHECK-GLOBAL-NEXT:    and w0, w9, w8
+; CHECK-GLOBAL-NEXT:    ret
+;
+; CHECK-GLOBAL-CSSC-LABEL: minmax_low_bits_load_i8:
+; CHECK-GLOBAL-CSSC:       // %bb.0:
+; CHECK-GLOBAL-CSSC-NEXT:    ldrb w9, [x0]
+; CHECK-GLOBAL-CSSC-NEXT:    ldrb w10, [x1]
+; CHECK-GLOBAL-CSSC-NEXT:    mov w8, #68 // =0x44
+; CHECK-GLOBAL-CSSC-NEXT:    eor w9, w9, #0x4
+; CHECK-GLOBAL-CSSC-NEXT:    eor w10, w10, #0xffffff80
+; CHECK-GLOBAL-CSSC-NEXT:    and w9, w9, #0xff
+; CHECK-GLOBAL-CSSC-NEXT:    and w10, w10, #0xff
+; CHECK-GLOBAL-CSSC-NEXT:    umin w9, w9, w10
+; CHECK-GLOBAL-CSSC-NEXT:    and w0, w9, w8
+; CHECK-GLOBAL-CSSC-NEXT:    ret
+  %x = load i8, ptr %px
+  %y = load i8, ptr %py
+  %a = xor i8 %x, 4
+  %b = xor i8 %y, 128
+  %m = call i8 @llvm.umin.i8(i8 %a, i8 %b)
+  %r = and i8 %m, 68
+  ret i8 %r
+}

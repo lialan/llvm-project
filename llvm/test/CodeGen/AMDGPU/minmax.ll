@@ -1772,6 +1772,172 @@ declare half @llvm.maxnum.f16(half, half)
 declare float @llvm.minnum.f32(float, float)
 declare float @llvm.maxnum.f32(float, float)
 attributes #0 = { nounwind "no-nans-fp-math"="true" }
+
+; Low bits cannot affect the high bits of an integer min/max.
+define i32 @minmax_low_bits_umin(i32 %x, i32 %y) {
+; SDAG-GFX11-LABEL: minmax_low_bits_umin:
+; SDAG-GFX11:       ; %bb.0:
+; SDAG-GFX11-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; SDAG-GFX11-NEXT:    v_min_u32_e32 v0, v0, v1
+; SDAG-GFX11-NEXT:    v_lshrrev_b32_e32 v0, 8, v0
+; SDAG-GFX11-NEXT:    s_setpc_b64 s[30:31]
+;
+; GISEL-GFX11-LABEL: minmax_low_bits_umin:
+; GISEL-GFX11:       ; %bb.0:
+; GISEL-GFX11-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; GISEL-GFX11-NEXT:    v_xor_b32_e32 v0, 0x80, v0
+; GISEL-GFX11-NEXT:    v_xor_b32_e32 v1, 64, v1
+; GISEL-GFX11-NEXT:    v_min_u32_e32 v0, v0, v1
+; GISEL-GFX11-NEXT:    v_lshrrev_b32_e32 v0, 8, v0
+; GISEL-GFX11-NEXT:    s_setpc_b64 s[30:31]
+;
+; SDAG-GFX1170-LABEL: minmax_low_bits_umin:
+; SDAG-GFX1170:       ; %bb.0:
+; SDAG-GFX1170-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; SDAG-GFX1170-NEXT:    v_min_u32_e32 v0, v0, v1
+; SDAG-GFX1170-NEXT:    v_lshrrev_b32_e32 v0, 8, v0
+; SDAG-GFX1170-NEXT:    s_setpc_b64 s[30:31]
+;
+; GISEL-GFX1170-LABEL: minmax_low_bits_umin:
+; GISEL-GFX1170:       ; %bb.0:
+; GISEL-GFX1170-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; GISEL-GFX1170-NEXT:    v_xor_b32_e32 v0, 0x80, v0
+; GISEL-GFX1170-NEXT:    v_xor_b32_e32 v1, 64, v1
+; GISEL-GFX1170-NEXT:    v_min_u32_e32 v0, v0, v1
+; GISEL-GFX1170-NEXT:    v_lshrrev_b32_e32 v0, 8, v0
+; GISEL-GFX1170-NEXT:    s_setpc_b64 s[30:31]
+;
+; SDAG-GFX12-LABEL: minmax_low_bits_umin:
+; SDAG-GFX12:       ; %bb.0:
+; SDAG-GFX12-NEXT:    s_wait_loadcnt_dscnt 0x0
+; SDAG-GFX12-NEXT:    s_wait_expcnt 0x0
+; SDAG-GFX12-NEXT:    s_wait_samplecnt 0x0
+; SDAG-GFX12-NEXT:    s_wait_bvhcnt 0x0
+; SDAG-GFX12-NEXT:    s_wait_kmcnt 0x0
+; SDAG-GFX12-NEXT:    v_min_u32_e32 v0, v0, v1
+; SDAG-GFX12-NEXT:    v_lshrrev_b32_e32 v0, 8, v0
+; SDAG-GFX12-NEXT:    s_setpc_b64 s[30:31]
+;
+; GISEL-GFX12-LABEL: minmax_low_bits_umin:
+; GISEL-GFX12:       ; %bb.0:
+; GISEL-GFX12-NEXT:    s_wait_loadcnt_dscnt 0x0
+; GISEL-GFX12-NEXT:    s_wait_expcnt 0x0
+; GISEL-GFX12-NEXT:    s_wait_samplecnt 0x0
+; GISEL-GFX12-NEXT:    s_wait_bvhcnt 0x0
+; GISEL-GFX12-NEXT:    s_wait_kmcnt 0x0
+; GISEL-GFX12-NEXT:    v_xor_b32_e32 v0, 0x80, v0
+; GISEL-GFX12-NEXT:    v_xor_b32_e32 v1, 64, v1
+; GISEL-GFX12-NEXT:    v_min_u32_e32 v0, v0, v1
+; GISEL-GFX12-NEXT:    v_lshrrev_b32_e32 v0, 8, v0
+; GISEL-GFX12-NEXT:    s_setpc_b64 s[30:31]
+;
+; SDAG-GFX1250-LABEL: minmax_low_bits_umin:
+; SDAG-GFX1250:       ; %bb.0:
+; SDAG-GFX1250-NEXT:    s_wait_loadcnt_dscnt 0x0
+; SDAG-GFX1250-NEXT:    s_wait_kmcnt 0x0
+; SDAG-GFX1250-NEXT:    v_min_u32_e32 v0, v0, v1
+; SDAG-GFX1250-NEXT:    v_lshrrev_b32_e32 v0, 8, v0
+; SDAG-GFX1250-NEXT:    s_set_pc_i64 s[30:31]
+;
+; GISEL-GFX1250-LABEL: minmax_low_bits_umin:
+; GISEL-GFX1250:       ; %bb.0:
+; GISEL-GFX1250-NEXT:    s_wait_loadcnt_dscnt 0x0
+; GISEL-GFX1250-NEXT:    s_wait_kmcnt 0x0
+; GISEL-GFX1250-NEXT:    v_xor_b32_e32 v0, 0x80, v0
+; GISEL-GFX1250-NEXT:    v_xor_b32_e32 v1, 64, v1
+; GISEL-GFX1250-NEXT:    v_min_u32_e32 v0, v0, v1
+; GISEL-GFX1250-NEXT:    v_lshrrev_b32_e32 v0, 8, v0
+; GISEL-GFX1250-NEXT:    s_set_pc_i64 s[30:31]
+  %a = xor i32 %x, 128
+  %b = xor i32 %y, 64
+  %c = icmp ult i32 %a, %b
+  %m = select i1 %c, i32 %a, i32 %b
+  %r = lshr i32 %m, 8
+  ret i32 %r
+}
+
+define i32 @minmax_low_bits_smin(i32 %x, i32 %y) {
+; SDAG-GFX11-LABEL: minmax_low_bits_smin:
+; SDAG-GFX11:       ; %bb.0:
+; SDAG-GFX11-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; SDAG-GFX11-NEXT:    v_min_i32_e32 v0, v0, v1
+; SDAG-GFX11-NEXT:    v_lshrrev_b32_e32 v0, 8, v0
+; SDAG-GFX11-NEXT:    s_setpc_b64 s[30:31]
+;
+; GISEL-GFX11-LABEL: minmax_low_bits_smin:
+; GISEL-GFX11:       ; %bb.0:
+; GISEL-GFX11-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; GISEL-GFX11-NEXT:    v_xor_b32_e32 v0, 0x80, v0
+; GISEL-GFX11-NEXT:    v_xor_b32_e32 v1, 64, v1
+; GISEL-GFX11-NEXT:    v_min_i32_e32 v0, v0, v1
+; GISEL-GFX11-NEXT:    v_lshrrev_b32_e32 v0, 8, v0
+; GISEL-GFX11-NEXT:    s_setpc_b64 s[30:31]
+;
+; SDAG-GFX1170-LABEL: minmax_low_bits_smin:
+; SDAG-GFX1170:       ; %bb.0:
+; SDAG-GFX1170-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; SDAG-GFX1170-NEXT:    v_min_i32_e32 v0, v0, v1
+; SDAG-GFX1170-NEXT:    v_lshrrev_b32_e32 v0, 8, v0
+; SDAG-GFX1170-NEXT:    s_setpc_b64 s[30:31]
+;
+; GISEL-GFX1170-LABEL: minmax_low_bits_smin:
+; GISEL-GFX1170:       ; %bb.0:
+; GISEL-GFX1170-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; GISEL-GFX1170-NEXT:    v_xor_b32_e32 v0, 0x80, v0
+; GISEL-GFX1170-NEXT:    v_xor_b32_e32 v1, 64, v1
+; GISEL-GFX1170-NEXT:    v_min_i32_e32 v0, v0, v1
+; GISEL-GFX1170-NEXT:    v_lshrrev_b32_e32 v0, 8, v0
+; GISEL-GFX1170-NEXT:    s_setpc_b64 s[30:31]
+;
+; SDAG-GFX12-LABEL: minmax_low_bits_smin:
+; SDAG-GFX12:       ; %bb.0:
+; SDAG-GFX12-NEXT:    s_wait_loadcnt_dscnt 0x0
+; SDAG-GFX12-NEXT:    s_wait_expcnt 0x0
+; SDAG-GFX12-NEXT:    s_wait_samplecnt 0x0
+; SDAG-GFX12-NEXT:    s_wait_bvhcnt 0x0
+; SDAG-GFX12-NEXT:    s_wait_kmcnt 0x0
+; SDAG-GFX12-NEXT:    v_min_i32_e32 v0, v0, v1
+; SDAG-GFX12-NEXT:    v_lshrrev_b32_e32 v0, 8, v0
+; SDAG-GFX12-NEXT:    s_setpc_b64 s[30:31]
+;
+; GISEL-GFX12-LABEL: minmax_low_bits_smin:
+; GISEL-GFX12:       ; %bb.0:
+; GISEL-GFX12-NEXT:    s_wait_loadcnt_dscnt 0x0
+; GISEL-GFX12-NEXT:    s_wait_expcnt 0x0
+; GISEL-GFX12-NEXT:    s_wait_samplecnt 0x0
+; GISEL-GFX12-NEXT:    s_wait_bvhcnt 0x0
+; GISEL-GFX12-NEXT:    s_wait_kmcnt 0x0
+; GISEL-GFX12-NEXT:    v_xor_b32_e32 v0, 0x80, v0
+; GISEL-GFX12-NEXT:    v_xor_b32_e32 v1, 64, v1
+; GISEL-GFX12-NEXT:    v_min_i32_e32 v0, v0, v1
+; GISEL-GFX12-NEXT:    v_lshrrev_b32_e32 v0, 8, v0
+; GISEL-GFX12-NEXT:    s_setpc_b64 s[30:31]
+;
+; SDAG-GFX1250-LABEL: minmax_low_bits_smin:
+; SDAG-GFX1250:       ; %bb.0:
+; SDAG-GFX1250-NEXT:    s_wait_loadcnt_dscnt 0x0
+; SDAG-GFX1250-NEXT:    s_wait_kmcnt 0x0
+; SDAG-GFX1250-NEXT:    v_min_i32_e32 v0, v0, v1
+; SDAG-GFX1250-NEXT:    v_lshrrev_b32_e32 v0, 8, v0
+; SDAG-GFX1250-NEXT:    s_set_pc_i64 s[30:31]
+;
+; GISEL-GFX1250-LABEL: minmax_low_bits_smin:
+; GISEL-GFX1250:       ; %bb.0:
+; GISEL-GFX1250-NEXT:    s_wait_loadcnt_dscnt 0x0
+; GISEL-GFX1250-NEXT:    s_wait_kmcnt 0x0
+; GISEL-GFX1250-NEXT:    v_xor_b32_e32 v0, 0x80, v0
+; GISEL-GFX1250-NEXT:    v_xor_b32_e32 v1, 64, v1
+; GISEL-GFX1250-NEXT:    v_min_i32_e32 v0, v0, v1
+; GISEL-GFX1250-NEXT:    v_lshrrev_b32_e32 v0, 8, v0
+; GISEL-GFX1250-NEXT:    s_set_pc_i64 s[30:31]
+  %a = xor i32 %x, 128
+  %b = xor i32 %y, 64
+  %c = icmp slt i32 %a, %b
+  %m = select i1 %c, i32 %a, i32 %b
+  %r = lshr i32 %m, 8
+  ret i32 %r
+}
+
 ;; NOTE: These prefixes are unused and the list is autogenerated. Do not add tests below this line:
 ; GISEL: {{.*}}
 ; SDAG: {{.*}}

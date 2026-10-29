@@ -5351,6 +5351,23 @@ SDValue AMDGPUTargetLowering::performFNegCombine(SDNode *N,
     if (!N0->getFlags().hasNoNaNs())
       return SDValue();
 
+    // Keep the negate on the result if pushing it through would require
+    // materializing a negated constant such as -0.0, and the single user can
+    // absorb the negate as a source modifier. This trades an e32 user for an
+    // e64 user to save the constant materialization. Without VOP3 literals,
+    // med3 cannot encode the negated constant directly. Intrinsic users are
+    // excluded because hasSourceMods() accepts intrinsics like readfirstlane
+    // that cannot take a neg modifier.
+    if (!DAG.getSubtarget<GCNSubtarget>().hasVOP3Literal() &&
+        any_of(N0->ops(),
+               [this](SDValue Op) { return isConstantCostlierToNegate(Op); }) &&
+        none_of(N->users(),
+                [](const SDNode *U) {
+                  return U->getOpcode() == ISD::INTRINSIC_WO_CHAIN;
+                }) &&
+        allUsesHaveSourceMods(N, 1))
+      return SDValue();
+
     SDValue Ops[3];
     for (unsigned I = 0; I < 3; ++I)
       Ops[I] = DAG.getNode(ISD::FNEG, SL, VT, N0->getOperand(I), N0->getFlags());

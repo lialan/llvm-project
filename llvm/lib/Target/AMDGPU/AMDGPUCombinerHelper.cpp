@@ -269,11 +269,33 @@ bool AMDGPUCombinerHelper::matchFoldableFneg(MachineInstr &MI,
     case Intrinsic::amdgcn_sin:
     case Intrinsic::amdgcn_fmul_legacy:
       return true;
-    case Intrinsic::amdgcn_fmed3:
+    case Intrinsic::amdgcn_fmed3: {
       // med3 sorts a NaN input as smaller than everything regardless of its
       // sign, so negating all operands does not sign-flip the median when an
       // input may be NaN.
-      return MatchInfo->getFlag(MachineInstr::MIFlag::FmNoNans);
+      if (!MatchInfo->getFlag(MachineInstr::MIFlag::FmNoNans))
+        return false;
+
+      // Keep the negate on the result if pushing it through would require
+      // materializing a negated constant such as -0.0, and the single user
+      // can absorb the negate as a source modifier. Without VOP3 literals,
+      // med3 cannot encode the negated constant directly. Intrinsic users are
+      // excluded because hasSourceMods() accepts intrinsics like readfirstlane
+      // that cannot take a neg modifier.
+      if (STI.hasVOP3Literal())
+        return true;
+      if (none_of(drop_begin(MatchInfo->operands(), 2),
+                  [&](const MachineOperand &Op) {
+                    return isConstantCostlierToNegate(*MatchInfo, Op.getReg(),
+                                                      MRI);
+                  }))
+        return true;
+      Register Dst = MI.getOperand(0).getReg();
+      if (any_of(MRI.use_nodbg_instructions(Dst),
+                 [](const MachineInstr &Use) { return isa<GIntrinsic>(Use); }))
+        return true;
+      return !allUsesHaveSourceMods(MI, MRI, 1);
+    }
     case Intrinsic::amdgcn_fma_legacy:
       return mayIgnoreSignedZero(*MatchInfo);
     default:

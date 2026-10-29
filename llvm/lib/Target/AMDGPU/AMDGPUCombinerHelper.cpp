@@ -268,8 +268,12 @@ bool AMDGPUCombinerHelper::matchFoldableFneg(MachineInstr &MI,
     case Intrinsic::amdgcn_rcp_legacy:
     case Intrinsic::amdgcn_sin:
     case Intrinsic::amdgcn_fmul_legacy:
-    case Intrinsic::amdgcn_fmed3:
       return true;
+    case Intrinsic::amdgcn_fmed3:
+      // med3 sorts a NaN input as smaller than everything regardless of its
+      // sign, so negating all operands does not sign-flip the median when an
+      // input may be NaN.
+      return MatchInfo->getFlag(MachineInstr::MIFlag::FmNoNans);
     case Intrinsic::amdgcn_fma_legacy:
       return mayIgnoreSignedZero(*MatchInfo);
     default:

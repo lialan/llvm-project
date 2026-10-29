@@ -104,234 +104,138 @@ define float @no_fold_f32_fsub_into_fneg_modifier_daz_commuted(float %v0, float 
 }
 
 define float @fold_f32_fsub_into_fneg_modifier_ieee(float %v0, float %v1) #0 {
-; SDAG-LABEL: fold_f32_fsub_into_fneg_modifier_ieee:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f32_e64 v0, -v0, v1
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_f32_fsub_into_fneg_modifier_ieee:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f32_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_mul_f32_e32 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_f32_fsub_into_fneg_modifier_ieee:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f32_e64 v0, -v0, v1
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub float -0.0, %v0
   %mul = fmul float %sub, %v1
   ret float %mul
 }
 
 define float @fold_f32_fsub_into_fneg_modifier_daz(float %v0, float %v1) #1 {
-; SDAG-LABEL: fold_f32_fsub_into_fneg_modifier_daz:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f32_e64 v0, -v0, v1
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_f32_fsub_into_fneg_modifier_daz:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f32_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_mul_f32_e32 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_f32_fsub_into_fneg_modifier_daz:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f32_e64 v0, -v0, v1
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub float -0.0, %v0
   %mul = fmul float %sub, %v1
   ret float %mul
 }
 
 define float @fold_f32_fsub_into_fneg_modifier_ieee_nsz(float %v0, float %v1) #0 {
-; SDAG-LABEL: fold_f32_fsub_into_fneg_modifier_ieee_nsz:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f32_e64 v0, -v0, v1
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_f32_fsub_into_fneg_modifier_ieee_nsz:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f32_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_mul_f32_e32 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_f32_fsub_into_fneg_modifier_ieee_nsz:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f32_e64 v0, -v0, v1
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub nsz float -0.0, %v0
   %mul = fmul nsz float %sub, %v1
   ret float %mul
 }
 
 define float @fold_f32_fsub_into_fneg_modifier_daz_nsz(float %v0, float %v1) #1 {
-; SDAG-LABEL: fold_f32_fsub_into_fneg_modifier_daz_nsz:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f32_e64 v0, -v0, v1
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_f32_fsub_into_fneg_modifier_daz_nsz:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f32_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_mul_f32_e32 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_f32_fsub_into_fneg_modifier_daz_nsz:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f32_e64 v0, -v0, v1
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub nsz float -0.0, %v0
   %mul = fmul nsz float %sub, %v1
   ret float %mul
 }
 
 define float @fold_f32_fsub_into_fneg_modifier_dynamic(float %v0, float %v1) #2 {
-; SDAG-LABEL: fold_f32_fsub_into_fneg_modifier_dynamic:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f32_e64 v0, -v0, v1
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_f32_fsub_into_fneg_modifier_dynamic:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f32_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_mul_f32_e32 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_f32_fsub_into_fneg_modifier_dynamic:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f32_e64 v0, -v0, v1
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub float -0.0, %v0
   %mul = fmul float %sub, %v1
   ret float %mul
 }
 
 define float @fold_f32_fsub_into_fneg_modifier_dynamic_nsz(float %v0, float %v1) #2 {
-; SDAG-LABEL: fold_f32_fsub_into_fneg_modifier_dynamic_nsz:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f32_e64 v0, -v0, v1
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_f32_fsub_into_fneg_modifier_dynamic_nsz:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f32_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_mul_f32_e32 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_f32_fsub_into_fneg_modifier_dynamic_nsz:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f32_e64 v0, -v0, v1
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub nsz float -0.0, %v0
   %mul = fmul nsz float %sub, %v1
   ret float %mul
 }
 
 define <2 x float> @fold_v2f32_fsub_into_fneg_modifier_ieee(<2 x float> %v0, <2 x float> %v1) #0 {
-; SDAG-LABEL: fold_v2f32_fsub_into_fneg_modifier_ieee:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f32_e64 v0, -v0, v2
-; SDAG-NEXT:    v_mul_f32_e64 v1, -v1, v3
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_v2f32_fsub_into_fneg_modifier_ieee:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f32_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_max_f32_e64 v1, -v1, -v1
-; GISEL-NEXT:    v_mul_f32_e32 v0, v0, v2
-; GISEL-NEXT:    v_mul_f32_e32 v1, v1, v3
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_v2f32_fsub_into_fneg_modifier_ieee:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f32_e64 v0, -v0, v2
+; CHECK-NEXT:    v_mul_f32_e64 v1, -v1, v3
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub <2 x float> <float -0.0, float -0.0>, %v0
   %mul = fmul <2 x float> %sub, %v1
   ret <2 x float> %mul
 }
 
 define <2 x float> @fold_v2f32_fsub_into_fneg_modifier_daz(<2 x float> %v0, <2 x float> %v1) #1 {
-; SDAG-LABEL: fold_v2f32_fsub_into_fneg_modifier_daz:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f32_e64 v0, -v0, v2
-; SDAG-NEXT:    v_mul_f32_e64 v1, -v1, v3
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_v2f32_fsub_into_fneg_modifier_daz:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f32_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_max_f32_e64 v1, -v1, -v1
-; GISEL-NEXT:    v_mul_f32_e32 v0, v0, v2
-; GISEL-NEXT:    v_mul_f32_e32 v1, v1, v3
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_v2f32_fsub_into_fneg_modifier_daz:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f32_e64 v0, -v0, v2
+; CHECK-NEXT:    v_mul_f32_e64 v1, -v1, v3
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub <2 x float> <float -0.0, float -0.0>, %v0
   %mul = fmul <2 x float> %sub, %v1
   ret <2 x float> %mul
 }
 
 define <2 x float> @fold_v2f32_fsub_into_fneg_modifier_ieee_nsz(<2 x float> %v0, <2 x float> %v1) #0 {
-; SDAG-LABEL: fold_v2f32_fsub_into_fneg_modifier_ieee_nsz:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f32_e64 v0, -v0, v2
-; SDAG-NEXT:    v_mul_f32_e64 v1, -v1, v3
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_v2f32_fsub_into_fneg_modifier_ieee_nsz:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f32_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_max_f32_e64 v1, -v1, -v1
-; GISEL-NEXT:    v_mul_f32_e32 v0, v0, v2
-; GISEL-NEXT:    v_mul_f32_e32 v1, v1, v3
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_v2f32_fsub_into_fneg_modifier_ieee_nsz:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f32_e64 v0, -v0, v2
+; CHECK-NEXT:    v_mul_f32_e64 v1, -v1, v3
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub nsz <2 x float> <float -0.0, float -0.0>, %v0
   %mul = fmul nsz <2 x float> %sub, %v1
   ret <2 x float> %mul
 }
 
 define <2 x float> @fold_v2f32_fsub_into_fneg_modifier_daz_nsz(<2 x float> %v0, <2 x float> %v1) #1 {
-; SDAG-LABEL: fold_v2f32_fsub_into_fneg_modifier_daz_nsz:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f32_e64 v0, -v0, v2
-; SDAG-NEXT:    v_mul_f32_e64 v1, -v1, v3
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_v2f32_fsub_into_fneg_modifier_daz_nsz:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f32_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_max_f32_e64 v1, -v1, -v1
-; GISEL-NEXT:    v_mul_f32_e32 v0, v0, v2
-; GISEL-NEXT:    v_mul_f32_e32 v1, v1, v3
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_v2f32_fsub_into_fneg_modifier_daz_nsz:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f32_e64 v0, -v0, v2
+; CHECK-NEXT:    v_mul_f32_e64 v1, -v1, v3
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub nsz <2 x float> <float -0.0, float -0.0>, %v0
   %mul = fmul nsz <2 x float> %sub, %v1
   ret <2 x float> %mul
 }
 
 define <2 x float> @fold_v2f32_fsub_into_fneg_modifier_dynamic(<2 x float> %v0, <2 x float> %v1) #2 {
-; SDAG-LABEL: fold_v2f32_fsub_into_fneg_modifier_dynamic:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f32_e64 v0, -v0, v2
-; SDAG-NEXT:    v_mul_f32_e64 v1, -v1, v3
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_v2f32_fsub_into_fneg_modifier_dynamic:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f32_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_max_f32_e64 v1, -v1, -v1
-; GISEL-NEXT:    v_mul_f32_e32 v0, v0, v2
-; GISEL-NEXT:    v_mul_f32_e32 v1, v1, v3
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_v2f32_fsub_into_fneg_modifier_dynamic:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f32_e64 v0, -v0, v2
+; CHECK-NEXT:    v_mul_f32_e64 v1, -v1, v3
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub <2 x float> <float -0.0, float -0.0>, %v0
   %mul = fmul <2 x float> %sub, %v1
   ret <2 x float> %mul
 }
 
 define <2 x float> @fold_v2f32_fsub_into_fneg_modifier_dynamic_nsz(<2 x float> %v0, <2 x float> %v1) #2 {
-; SDAG-LABEL: fold_v2f32_fsub_into_fneg_modifier_dynamic_nsz:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f32_e64 v0, -v0, v2
-; SDAG-NEXT:    v_mul_f32_e64 v1, -v1, v3
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_v2f32_fsub_into_fneg_modifier_dynamic_nsz:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f32_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_max_f32_e64 v1, -v1, -v1
-; GISEL-NEXT:    v_mul_f32_e32 v0, v0, v2
-; GISEL-NEXT:    v_mul_f32_e32 v1, v1, v3
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_v2f32_fsub_into_fneg_modifier_dynamic_nsz:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f32_e64 v0, -v0, v2
+; CHECK-NEXT:    v_mul_f32_e64 v1, -v1, v3
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub nsz <2 x float> <float -0.0, float -0.0>, %v0
   %mul = fmul nsz <2 x float> %sub, %v1
   ret <2 x float> %mul
@@ -339,216 +243,132 @@ define <2 x float> @fold_v2f32_fsub_into_fneg_modifier_dynamic_nsz(<2 x float> %
 
 
 define half @fold_f16_fsub_into_fneg_modifier_ieee(half %v0, half %v1) #0 {
-; SDAG-LABEL: fold_f16_fsub_into_fneg_modifier_ieee:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f16_e64 v0, -v0, v1
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_f16_fsub_into_fneg_modifier_ieee:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f16_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_mul_f16_e32 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_f16_fsub_into_fneg_modifier_ieee:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f16_e64 v0, -v0, v1
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub half -0.0, %v0
   %mul = fmul half %sub, %v1
   ret half %mul
 }
 
 define half @fold_f16_fsub_into_fneg_modifier_daz(half %v0, half %v1) #1 {
-; SDAG-LABEL: fold_f16_fsub_into_fneg_modifier_daz:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f16_e64 v0, -v0, v1
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_f16_fsub_into_fneg_modifier_daz:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f16_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_mul_f16_e32 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_f16_fsub_into_fneg_modifier_daz:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f16_e64 v0, -v0, v1
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub half -0.0, %v0
   %mul = fmul half %sub, %v1
   ret half %mul
 }
 
 define half @fold_f16_fsub_into_fneg_modifier_ieee_nsz(half %v0, half %v1) #0 {
-; SDAG-LABEL: fold_f16_fsub_into_fneg_modifier_ieee_nsz:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f16_e64 v0, -v0, v1
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_f16_fsub_into_fneg_modifier_ieee_nsz:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f16_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_mul_f16_e32 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_f16_fsub_into_fneg_modifier_ieee_nsz:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f16_e64 v0, -v0, v1
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub nsz half -0.0, %v0
   %mul = fmul nsz half %sub, %v1
   ret half %mul
 }
 
 define half @fold_f16_fsub_into_fneg_modifier_daz_nsz(half %v0, half %v1) #1 {
-; SDAG-LABEL: fold_f16_fsub_into_fneg_modifier_daz_nsz:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f16_e64 v0, -v0, v1
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_f16_fsub_into_fneg_modifier_daz_nsz:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f16_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_mul_f16_e32 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_f16_fsub_into_fneg_modifier_daz_nsz:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f16_e64 v0, -v0, v1
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub nsz half -0.0, %v0
   %mul = fmul nsz half %sub, %v1
   ret half %mul
 }
 
 define half @fold_f16_fsub_into_fneg_modifier_dynamic(half %v0, half %v1) #2 {
-; SDAG-LABEL: fold_f16_fsub_into_fneg_modifier_dynamic:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f16_e64 v0, -v0, v1
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_f16_fsub_into_fneg_modifier_dynamic:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f16_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_mul_f16_e32 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_f16_fsub_into_fneg_modifier_dynamic:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f16_e64 v0, -v0, v1
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub half -0.0, %v0
   %mul = fmul half %sub, %v1
   ret half %mul
 }
 
 define half @fold_f16_fsub_into_fneg_modifier_dynamic_nsz(half %v0, half %v1) #2 {
-; SDAG-LABEL: fold_f16_fsub_into_fneg_modifier_dynamic_nsz:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_mul_f16_e64 v0, -v0, v1
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_f16_fsub_into_fneg_modifier_dynamic_nsz:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_max_f16_e64 v0, -v0, -v0
-; GISEL-NEXT:    v_mul_f16_e32 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_f16_fsub_into_fneg_modifier_dynamic_nsz:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_mul_f16_e64 v0, -v0, v1
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub nsz half -0.0, %v0
   %mul = fmul nsz half %sub, %v1
   ret half %mul
 }
 
 define <2 x half> @fold_v2f16_fsub_into_fneg_modifier_ieee(<2 x half> %v0, <2 x half> %v1) #0 {
-; SDAG-LABEL: fold_v2f16_fsub_into_fneg_modifier_ieee:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_pk_mul_f16 v0, v0, v1 neg_lo:[1,0] neg_hi:[1,0]
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_v2f16_fsub_into_fneg_modifier_ieee:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_pk_max_f16 v0, v0, v0 neg_lo:[1,1] neg_hi:[1,1]
-; GISEL-NEXT:    v_pk_mul_f16 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_v2f16_fsub_into_fneg_modifier_ieee:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_pk_mul_f16 v0, v0, v1 neg_lo:[1,0] neg_hi:[1,0]
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub <2 x half> <half -0.0, half -0.0>, %v0
   %mul = fmul <2 x half> %sub, %v1
   ret <2 x half> %mul
 }
 
 define <2 x half> @fold_v2f16_fsub_into_fneg_modifier_daz(<2 x half> %v0, <2 x half> %v1) #1 {
-; SDAG-LABEL: fold_v2f16_fsub_into_fneg_modifier_daz:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_pk_mul_f16 v0, v0, v1 neg_lo:[1,0] neg_hi:[1,0]
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_v2f16_fsub_into_fneg_modifier_daz:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_pk_max_f16 v0, v0, v0 neg_lo:[1,1] neg_hi:[1,1]
-; GISEL-NEXT:    v_pk_mul_f16 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_v2f16_fsub_into_fneg_modifier_daz:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_pk_mul_f16 v0, v0, v1 neg_lo:[1,0] neg_hi:[1,0]
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub <2 x half> <half -0.0, half -0.0>, %v0
   %mul = fmul <2 x half> %sub, %v1
   ret <2 x half> %mul
 }
 
 define <2 x half> @fold_v2f16_fsub_into_fneg_modifier_ieee_nsz(<2 x half> %v0, <2 x half> %v1) #0 {
-; SDAG-LABEL: fold_v2f16_fsub_into_fneg_modifier_ieee_nsz:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_pk_mul_f16 v0, v0, v1 neg_lo:[1,0] neg_hi:[1,0]
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_v2f16_fsub_into_fneg_modifier_ieee_nsz:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_pk_max_f16 v0, v0, v0 neg_lo:[1,1] neg_hi:[1,1]
-; GISEL-NEXT:    v_pk_mul_f16 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_v2f16_fsub_into_fneg_modifier_ieee_nsz:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_pk_mul_f16 v0, v0, v1 neg_lo:[1,0] neg_hi:[1,0]
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub nsz <2 x half> <half -0.0, half -0.0>, %v0
   %mul = fmul nsz <2 x half> %sub, %v1
   ret <2 x half> %mul
 }
 
 define <2 x half> @fold_v2f16_fsub_into_fneg_modifier_daz_nsz(<2 x half> %v0, <2 x half> %v1) #1 {
-; SDAG-LABEL: fold_v2f16_fsub_into_fneg_modifier_daz_nsz:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_pk_mul_f16 v0, v0, v1 neg_lo:[1,0] neg_hi:[1,0]
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_v2f16_fsub_into_fneg_modifier_daz_nsz:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_pk_max_f16 v0, v0, v0 neg_lo:[1,1] neg_hi:[1,1]
-; GISEL-NEXT:    v_pk_mul_f16 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_v2f16_fsub_into_fneg_modifier_daz_nsz:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_pk_mul_f16 v0, v0, v1 neg_lo:[1,0] neg_hi:[1,0]
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub nsz <2 x half> <half -0.0, half -0.0>, %v0
   %mul = fmul nsz <2 x half> %sub, %v1
   ret <2 x half> %mul
 }
 
 define <2 x half> @fold_v2f16_fsub_into_fneg_modifier_dynamic(<2 x half> %v0, <2 x half> %v1) #2 {
-; SDAG-LABEL: fold_v2f16_fsub_into_fneg_modifier_dynamic:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_pk_mul_f16 v0, v0, v1 neg_lo:[1,0] neg_hi:[1,0]
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_v2f16_fsub_into_fneg_modifier_dynamic:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_pk_max_f16 v0, v0, v0 neg_lo:[1,1] neg_hi:[1,1]
-; GISEL-NEXT:    v_pk_mul_f16 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_v2f16_fsub_into_fneg_modifier_dynamic:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_pk_mul_f16 v0, v0, v1 neg_lo:[1,0] neg_hi:[1,0]
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub <2 x half> <half -0.0, half -0.0>, %v0
   %mul = fmul <2 x half> %sub, %v1
   ret <2 x half> %mul
 }
 
 define <2 x half> @fold_v2f16_fsub_into_fneg_modifier_dynamic_nsz(<2 x half> %v0, <2 x half> %v1) #2 {
-; SDAG-LABEL: fold_v2f16_fsub_into_fneg_modifier_dynamic_nsz:
-; SDAG:       ; %bb.0:
-; SDAG-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; SDAG-NEXT:    v_pk_mul_f16 v0, v0, v1 neg_lo:[1,0] neg_hi:[1,0]
-; SDAG-NEXT:    s_setpc_b64 s[30:31]
-;
-; GISEL-LABEL: fold_v2f16_fsub_into_fneg_modifier_dynamic_nsz:
-; GISEL:       ; %bb.0:
-; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_pk_max_f16 v0, v0, v0 neg_lo:[1,1] neg_hi:[1,1]
-; GISEL-NEXT:    v_pk_mul_f16 v0, v0, v1
-; GISEL-NEXT:    s_setpc_b64 s[30:31]
+; CHECK-LABEL: fold_v2f16_fsub_into_fneg_modifier_dynamic_nsz:
+; CHECK:       ; %bb.0:
+; CHECK-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; CHECK-NEXT:    v_pk_mul_f16 v0, v0, v1 neg_lo:[1,0] neg_hi:[1,0]
+; CHECK-NEXT:    s_setpc_b64 s[30:31]
   %sub = fsub nsz <2 x half> <half -0.0, half -0.0>, %v0
   %mul = fmul nsz <2 x half> %sub, %v1
   ret <2 x half> %mul

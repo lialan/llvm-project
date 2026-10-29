@@ -327,7 +327,24 @@ bool AMDGPUPostLegalizerCombinerImpl::matchRemoveFcanonicalize(
     MachineInstr &MI) const {
   const SITargetLowering *TLI = static_cast<const SITargetLowering *>(
       MF.getSubtarget().getTargetLowering());
-  return TLI->isCanonicalized(MI.getOperand(1).getReg(), MF);
+  if (TLI->isCanonicalized(MI.getOperand(1).getReg(), MF))
+    return true;
+
+  // FP arithmetic flushes denormal inputs and quiets signaling NaN inputs
+  // under the same mode as fcanonicalize, so a canonicalize that only feeds
+  // such instructions is redundant.
+  return all_of(MRI.use_nodbg_instructions(MI.getOperand(0).getReg()),
+                [](const MachineInstr &UseMI) {
+                  switch (UseMI.getOpcode()) {
+                  case AMDGPU::G_FADD:
+                  case AMDGPU::G_FSUB:
+                  case AMDGPU::G_FMUL:
+                  case AMDGPU::G_FMA:
+                    return true;
+                  default:
+                    return false;
+                  }
+                });
 }
 
 // The buffer_load_{i8, i16} intrinsics are initially lowered as

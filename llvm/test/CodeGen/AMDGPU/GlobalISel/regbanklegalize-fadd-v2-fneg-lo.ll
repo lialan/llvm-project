@@ -24,14 +24,12 @@ define amdgpu_kernel void @fadd_v2_v_fneg_lo(ptr addrspace(1) %a, float %x) {
   ; CHECK-NEXT:   [[COPY5:%[0-9]+]]:vgpr(p1) = COPY [[LOAD]](p1)
   ; CHECK-NEXT:   [[PTR_ADD1:%[0-9]+]]:vgpr(p1) = nusw inbounds G_PTR_ADD [[COPY5]], [[MV]](i64)
   ; CHECK-NEXT:   [[LOAD2:%[0-9]+]]:vgpr(<2 x f32>) = G_LOAD [[PTR_ADD1]](p1) :: (load (<2 x f32>) from %ir.gep, addrspace 1)
-  ; CHECK-NEXT:   [[FNEG:%[0-9]+]]:sgpr(f32) = G_FNEG [[LOAD1]]
-  ; CHECK-NEXT:   [[COPY6:%[0-9]+]]:vgpr(f32) = COPY [[FNEG]](f32)
-  ; CHECK-NEXT:   [[FCANONICALIZE:%[0-9]+]]:vgpr(f32) = G_FCANONICALIZE [[COPY6]]
   ; CHECK-NEXT:   [[UV:%[0-9]+]]:vgpr(f32), [[UV1:%[0-9]+]]:vgpr(f32) = G_UNMERGE_VALUES [[LOAD2]](<2 x f32>)
-  ; CHECK-NEXT:   [[FADD:%[0-9]+]]:vgpr(f32) = G_FADD [[UV]], [[FCANONICALIZE]]
+  ; CHECK-NEXT:   [[COPY6:%[0-9]+]]:vgpr(f32) = COPY [[LOAD1]](f32)
+  ; CHECK-NEXT:   [[FSUB:%[0-9]+]]:vgpr(f32) = G_FSUB [[UV]], [[COPY6]]
   ; CHECK-NEXT:   [[COPY7:%[0-9]+]]:vgpr(f32) = COPY [[LOAD1]](f32)
-  ; CHECK-NEXT:   [[FADD1:%[0-9]+]]:vgpr(f32) = G_FADD [[UV1]], [[COPY7]]
-  ; CHECK-NEXT:   [[BUILD_VECTOR:%[0-9]+]]:vgpr(<2 x f32>) = G_BUILD_VECTOR [[FADD]](f32), [[FADD1]](f32)
+  ; CHECK-NEXT:   [[FADD:%[0-9]+]]:vgpr(f32) = G_FADD [[UV1]], [[COPY7]]
+  ; CHECK-NEXT:   [[BUILD_VECTOR:%[0-9]+]]:vgpr(<2 x f32>) = G_BUILD_VECTOR [[FSUB]](f32), [[FADD]](f32)
   ; CHECK-NEXT:   G_STORE [[BUILD_VECTOR]](<2 x f32>), [[PTR_ADD1]](p1) :: (store (<2 x f32>) into %ir.gep, addrspace 1)
   ; CHECK-NEXT:   S_ENDPGM 0
   %id = tail call i32 @llvm.amdgcn.workitem.id.x()

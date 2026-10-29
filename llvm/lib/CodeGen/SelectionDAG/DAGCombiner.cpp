@@ -11765,13 +11765,20 @@ SDValue DAGCombiner::visitSRA(SDNode *N) {
   if (N0.getOpcode() == ISD::TRUNCATE &&
       (N0.getOperand(0).getOpcode() == ISD::SRL ||
        N0.getOperand(0).getOpcode() == ISD::SRA) &&
-      N0.getOperand(0).hasOneUse() &&
-      N0.getOperand(0).getOperand(1).hasOneUse() && N1C) {
+      N0.getOperand(0).hasOneUse() && N1C) {
     SDValue N0Op0 = N0.getOperand(0);
     if (ConstantSDNode *LargeShift = isConstOrConstSplat(N0Op0.getOperand(1))) {
       EVT LargeVT = N0Op0.getValueType();
       unsigned TruncBits = LargeVT.getScalarSizeInBits() - OpSizeInBits;
-      if (LargeShift->getAPIntValue() == TruncBits) {
+      // A one-use shift amount folds at any stage. A shared shift amount only
+      // folds once operations are legal (to preserve scalar packing), and only
+      // if the target does not prefer the narrow shift. After legalization the
+      // wide SRA must itself be supported.
+      if (LargeShift->getAPIntValue() == TruncBits &&
+          (!LegalOperations ||
+           TLI.isOperationLegalOrCustom(ISD::SRA, LargeVT)) &&
+          (N0Op0.getOperand(1).hasOneUse() ||
+           (LegalOperations && !TLI.isNarrowingProfitable(N, LargeVT, VT)))) {
         EVT LargeShiftVT = getShiftAmountTy(LargeVT);
         SDValue Amt = DAG.getZExtOrTrunc(N1, DL, LargeShiftVT);
         Amt = DAG.getNode(ISD::ADD, DL, LargeShiftVT, Amt,

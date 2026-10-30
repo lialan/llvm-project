@@ -91,6 +91,12 @@ def hasoneuse_in_apply : GICombineRule<
   (match (COPY $dst, $src)),
   (apply (GIReplaceReg $dst, $src), (GIHasOneUse $src))>;
 
+// CHECK: :[[@LINE+1]]:{{[0-9]+}}: error: 'GIHasOneUse' cannot be the match root
+def hasoneuse_root : GICombineRule<
+  (defs root:$root),
+  (match (GIHasOneUse $dst):$root, (COPY $dst, $src)),
+  (apply [{ }])>;
+
 // CHECK: error: Failed to parse one or more rules
 
 def MyCombiner: GICombiner<"GenMyCombiner", [
@@ -105,5 +111,6 @@ def MyCombiner: GICombiner<"GenMyCombiner", [
   replacereg_ops,
   replacereg_nonroot,
   hasoneuse_noarg,
-  hasoneuse_in_apply
+  hasoneuse_in_apply,
+  hasoneuse_root
 ]>;

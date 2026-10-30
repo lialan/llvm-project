@@ -26,7 +26,8 @@ def too_many_perms : GICombineRule<
   (match (G_ZEXT $dst, $cst),
          (MatchFooPerms $cst, (i32 0)):$a,
          (MatchFooPerms $cst, (i32 0)):$b,
-         (MatchFooPerms $cst, (i32 0)):$c
+         (MatchFooPerms $cst, (i32 0)):$c,
+         (MatchFooPerms $cst, (i32 0)):$d
   ),
   (apply (COPY $dst, (i32 0)))>;
 

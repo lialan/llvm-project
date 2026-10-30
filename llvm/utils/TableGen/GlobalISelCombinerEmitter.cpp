@@ -1156,6 +1156,7 @@ bool CombineRuleBuilder::typecheckPatterns() {
 }
 
 bool CombineRuleBuilder::buildPermutationsToEmit() {
+  const int64_t MaxPerms = RuleDef.getValueAsInt("MaxPermutations");
   PermutationsToEmit.clear();
 
   // Start with one empty set of alternatives.
@@ -1172,6 +1173,14 @@ bool CombineRuleBuilder::buildPermutationsToEmit() {
     else
       continue;
 
+    const uint64_t NumPerms = uint64_t(PermutationsToEmit.size()) * NumAlts;
+    if (MaxPerms > 0 && NumPerms > uint64_t(MaxPerms)) {
+      PrintError(
+          "cannot emit rule '" + RuleDef.getName() + "'; " + Twine(NumPerms) +
+          " permutations would be emitted, but the max is " + Twine(MaxPerms));
+      return false;
+    }
+
     // For each pattern that needs permutations, multiply the current set of
     // alternatives.
     auto CurPerms = PermutationsToEmit;
@@ -1184,17 +1193,6 @@ bool CombineRuleBuilder::buildPermutationsToEmit() {
         NewPerm[Pat.get()] = K;
         PermutationsToEmit.emplace_back(std::move(NewPerm));
       }
-    }
-  }
-
-  if (int64_t MaxPerms = RuleDef.getValueAsInt("MaxPermutations");
-      MaxPerms > 0) {
-    if ((int64_t)PermutationsToEmit.size() > MaxPerms) {
-      PrintError("cannot emit rule '" + RuleDef.getName() + "'; " +
-                 Twine(PermutationsToEmit.size()) +
-                 " permutations would be emitted, but the max is " +
-                 Twine(MaxPerms));
-      return false;
     }
   }
 
@@ -1458,6 +1456,11 @@ bool CombineRuleBuilder::findRoots() {
   const auto Finish = [&]() {
     assert(MatchRoot);
 
+    if (const auto *BP = dyn_cast<BuiltinPattern>(MatchRoot)) {
+      PrintError("'" + BP->getInstName() + "' cannot be the match root");
+      return false;
+    }
+
     if (hasOnlyCXXApplyPatterns() || hasEraseRoot())
       return true;
 
@@ -1634,12 +1637,6 @@ bool CombineRuleBuilder::emitMatchPattern(CodeExpansions &CE,
 
     if (!emitPatFragMatchPattern(CE, Alts, M, &IM, *PFP, SeenPats))
       return false;
-  } else if (const auto *BP = dyn_cast<BuiltinPattern>(&IP)) {
-    if (BP->getBuiltinKind() == BI_HasOneUse) {
-      IM.addPredicate<OneUsePredicateMatcher>();
-    } else {
-      llvm_unreachable("No match builtins known!");
-    }
   } else {
     llvm_unreachable("Unknown kind of InstructionPattern!");
   }
@@ -1901,11 +1898,8 @@ bool CombineRuleBuilder::emitApplyPatterns(CodeExpansions &CE, RuleMatcher &M) {
   StringMap<unsigned> OperandToTempRegID;
 
   for (auto *ApplyRoot : ApplyRoots) {
-    assert(isa<InstructionPattern>(ApplyRoot) &&
-           "Root can only be a InstructionPattern!");
-    if (!emitInstructionApplyPattern(CE, M,
-                                     cast<InstructionPattern>(*ApplyRoot),
-                                     SeenPats, OperandToTempRegID))
+    if (!emitInstructionApplyPattern(CE, M, *ApplyRoot, SeenPats,
+                                     OperandToTempRegID))
       return false;
   }
 
@@ -2170,15 +2164,8 @@ bool CombineRuleBuilder::emitCodeGenInstructionApplyImmOperand(
   const bool isGFConstant = P.is("G_FCONSTANT");
   const auto Ty = O.getType();
   if (!Ty) {
-    if (isGConstant) {
-      PrintError("'G_CONSTANT' immediate must be typed!");
-      PrintNote("while emitting pattern '" + P.getName() + "' (" +
-                P.getInstName() + ")");
-      return false;
-    }
-
-    if (isGFConstant) {
-      PrintError("'G_FCONSTANT' immediate must be typed!");
+    if (isGConstant || isGFConstant) {
+      PrintError("'" + P.getInstName() + "' immediate must be typed!");
       PrintNote("while emitting pattern '" + P.getName() + "' (" +
                 P.getInstName() + ")");
       return false;

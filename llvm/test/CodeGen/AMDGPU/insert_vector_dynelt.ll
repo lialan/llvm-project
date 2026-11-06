@@ -1463,82 +1463,37 @@ entry:
 define amdgpu_kernel void @byte16_inselt(ptr addrspace(1) %out, <16 x i8> %vec, i32 %sel) {
 ; GCN-LABEL: byte16_inselt:
 ; GCN:       ; %bb.0: ; %entry
+; GCN-NEXT:    s_load_dword s8, s[4:5], 0x44
+; GCN-NEXT:    s_load_dwordx2 s[6:7], s[4:5], 0x24
 ; GCN-NEXT:    s_load_dwordx4 s[0:3], s[4:5], 0x34
-; GCN-NEXT:    s_load_dword s6, s[4:5], 0x44
-; GCN-NEXT:    s_load_dwordx2 s[4:5], s[4:5], 0x24
-; GCN-NEXT:    v_mov_b32_e32 v4, 0x6050400
-; GCN-NEXT:    v_mov_b32_e32 v5, 0xc0c0400
 ; GCN-NEXT:    s_waitcnt lgkmcnt(0)
-; GCN-NEXT:    s_lshr_b32 s7, s3, 16
-; GCN-NEXT:    s_cmp_lg_u32 s6, 14
-; GCN-NEXT:    s_cselect_b32 s7, s7, 1
-; GCN-NEXT:    s_lshr_b32 s8, s3, 24
-; GCN-NEXT:    s_cmp_lg_u32 s6, 15
-; GCN-NEXT:    v_mov_b32_e32 v0, s7
-; GCN-NEXT:    s_cselect_b32 s7, s8, 1
-; GCN-NEXT:    v_perm_b32 v0, s7, v0, v4
-; GCN-NEXT:    s_lshr_b32 s7, s3, 8
-; GCN-NEXT:    s_cmp_lg_u32 s6, 13
-; GCN-NEXT:    s_cselect_b32 s7, s7, 1
-; GCN-NEXT:    s_cmp_lg_u32 s6, 12
-; GCN-NEXT:    s_cselect_b32 s3, s3, 1
-; GCN-NEXT:    v_mov_b32_e32 v1, s3
-; GCN-NEXT:    s_lshr_b32 s3, s2, 16
-; GCN-NEXT:    s_cmp_lg_u32 s6, 10
-; GCN-NEXT:    v_perm_b32 v1, s7, v1, v5
-; GCN-NEXT:    s_cselect_b32 s3, s3, 1
-; GCN-NEXT:    s_lshr_b32 s7, s2, 24
-; GCN-NEXT:    v_lshlrev_b32_e32 v0, 16, v0
-; GCN-NEXT:    s_cmp_lg_u32 s6, 11
-; GCN-NEXT:    v_or_b32_e32 v3, v1, v0
-; GCN-NEXT:    s_cselect_b32 s7, s7, 1
-; GCN-NEXT:    v_mov_b32_e32 v0, s3
-; GCN-NEXT:    s_lshr_b32 s3, s2, 8
-; GCN-NEXT:    s_cmp_lg_u32 s6, 9
-; GCN-NEXT:    s_cselect_b32 s3, s3, 1
-; GCN-NEXT:    s_cmp_lg_u32 s6, 8
-; GCN-NEXT:    s_cselect_b32 s2, s2, 1
-; GCN-NEXT:    v_mov_b32_e32 v1, s2
-; GCN-NEXT:    s_lshr_b32 s2, s1, 16
-; GCN-NEXT:    s_cmp_lg_u32 s6, 6
-; GCN-NEXT:    v_perm_b32 v0, s7, v0, v4
-; GCN-NEXT:    v_perm_b32 v1, s3, v1, v5
-; GCN-NEXT:    s_cselect_b32 s2, s2, 1
-; GCN-NEXT:    s_lshr_b32 s3, s1, 24
-; GCN-NEXT:    v_lshlrev_b32_e32 v0, 16, v0
-; GCN-NEXT:    s_cmp_lg_u32 s6, 7
-; GCN-NEXT:    v_or_b32_e32 v2, v1, v0
-; GCN-NEXT:    s_cselect_b32 s3, s3, 1
-; GCN-NEXT:    v_mov_b32_e32 v0, s2
-; GCN-NEXT:    s_lshr_b32 s2, s1, 8
-; GCN-NEXT:    s_cmp_lg_u32 s6, 5
-; GCN-NEXT:    s_cselect_b32 s2, s2, 1
-; GCN-NEXT:    s_cmp_lg_u32 s6, 4
-; GCN-NEXT:    s_cselect_b32 s1, s1, 1
+; GCN-NEXT:    s_and_b32 s4, s8, 3
+; GCN-NEXT:    s_lshl_b32 s4, s4, 3
+; GCN-NEXT:    s_lshr_b32 s5, s8, 2
+; GCN-NEXT:    s_lshl_b32 s8, 0xff, s4
+; GCN-NEXT:    s_lshl_b32 s4, 1, s4
+; GCN-NEXT:    s_cmp_eq_u32 s5, 1
+; GCN-NEXT:    s_cselect_b32 s9, s1, s0
+; GCN-NEXT:    s_cmp_eq_u32 s5, 2
+; GCN-NEXT:    s_cselect_b32 s9, s2, s9
+; GCN-NEXT:    s_cmp_eq_u32 s5, 3
+; GCN-NEXT:    s_cselect_b32 s9, s3, s9
+; GCN-NEXT:    s_andn2_b32 s8, s9, s8
+; GCN-NEXT:    s_or_b32 s4, s4, s8
+; GCN-NEXT:    s_cmp_eq_u32 s5, 2
+; GCN-NEXT:    s_cselect_b32 s2, s4, s2
+; GCN-NEXT:    s_cmp_eq_u32 s5, 3
+; GCN-NEXT:    s_cselect_b32 s3, s4, s3
+; GCN-NEXT:    s_cmp_eq_u32 s5, 1
+; GCN-NEXT:    s_cselect_b32 s1, s4, s1
+; GCN-NEXT:    s_cmp_eq_u32 s5, 0
+; GCN-NEXT:    s_cselect_b32 s0, s4, s0
+; GCN-NEXT:    v_mov_b32_e32 v0, s0
 ; GCN-NEXT:    v_mov_b32_e32 v1, s1
-; GCN-NEXT:    s_lshr_b32 s1, s0, 16
-; GCN-NEXT:    s_cmp_lg_u32 s6, 2
-; GCN-NEXT:    v_perm_b32 v0, s3, v0, v4
-; GCN-NEXT:    v_perm_b32 v1, s2, v1, v5
-; GCN-NEXT:    s_cselect_b32 s1, s1, 1
-; GCN-NEXT:    s_lshr_b32 s2, s0, 24
-; GCN-NEXT:    v_lshlrev_b32_e32 v0, 16, v0
-; GCN-NEXT:    s_cmp_lg_u32 s6, 3
-; GCN-NEXT:    v_or_b32_e32 v1, v1, v0
-; GCN-NEXT:    s_cselect_b32 s2, s2, 1
-; GCN-NEXT:    v_mov_b32_e32 v0, s1
-; GCN-NEXT:    s_lshr_b32 s1, s0, 8
-; GCN-NEXT:    s_cmp_lg_u32 s6, 1
-; GCN-NEXT:    s_cselect_b32 s1, s1, 1
-; GCN-NEXT:    s_cmp_lg_u32 s6, 0
-; GCN-NEXT:    s_cselect_b32 s0, s0, 1
-; GCN-NEXT:    v_perm_b32 v0, s2, v0, v4
-; GCN-NEXT:    v_mov_b32_e32 v4, s0
-; GCN-NEXT:    v_lshlrev_b32_e32 v0, 16, v0
-; GCN-NEXT:    v_perm_b32 v4, s1, v4, v5
-; GCN-NEXT:    v_or_b32_e32 v0, v4, v0
-; GCN-NEXT:    v_mov_b32_e32 v4, s4
-; GCN-NEXT:    v_mov_b32_e32 v5, s5
+; GCN-NEXT:    v_mov_b32_e32 v2, s2
+; GCN-NEXT:    v_mov_b32_e32 v3, s3
+; GCN-NEXT:    v_mov_b32_e32 v4, s6
+; GCN-NEXT:    v_mov_b32_e32 v5, s7
 ; GCN-NEXT:    flat_store_dwordx4 v[4:5], v[0:3]
 ; GCN-NEXT:    s_endpgm
 ;

@@ -21,6 +21,7 @@
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/InstVisitor.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/InitializePasses.h"
@@ -74,6 +75,8 @@ public:
 
   bool canWidenScalarExtLoad(LoadInst &LI) const;
   bool visitLoadInst(LoadInst &LI);
+
+  bool expandDynamicInsertElement(InsertElementInst &IE) const;
 };
 
 using ValueToValueMap = DenseMap<const Value *, Value *>;
@@ -140,6 +143,10 @@ public:
     if (isa<StoreInst>(I))
       return true;
 
+    // A bitcast to a legal type consumes the packed value directly.
+    if (isa<BitCastInst>(I) && !shouldReplace(I->getType()))
+      return true;
+
     if (auto *BO = dyn_cast<BinaryOperator>(I)) {
       if (auto *VT = dyn_cast<FixedVectorType>(BO->getType())) {
         if (const auto *IT = dyn_cast<IntegerType>(VT->getElementType())) {
@@ -179,7 +186,7 @@ public:
       if (const auto *Intr = dyn_cast<IntrinsicInst>(II))
         return Intr->getIntrinsicID() == Intrinsic::amdgcn_perm;
       return isa<PHINode, ShuffleVectorInst, InsertElementInst,
-                 ExtractElementInst, CastInst>(II);
+                 ExtractElementInst, CastInst, FreezeInst>(II);
     };
 
     while (!UserList.empty()) {
@@ -222,6 +229,11 @@ bool AMDGPULateCodeGenPrepare::run() {
   LiveRegOptimizer LRO(*F.getParent(), ST);
 
   bool Changed = false;
+
+  // Expand before LRO so it sees the packed values crossing blocks.
+  for (Instruction &I : make_early_inc_range(instructions(F)))
+    if (auto *IE = dyn_cast<InsertElementInst>(&I))
+      Changed |= expandDynamicInsertElement(*IE);
 
   bool HasScalarSubwordLoads = ST.hasScalarSubwordLoads();
 
@@ -561,6 +573,65 @@ bool AMDGPULateCodeGenPrepare::visitLoadInst(LoadInst &LI) {
   LI.replaceAllUsesWith(NewVal);
   DeadInsts.emplace_back(&LI);
 
+  return true;
+}
+
+/// Insert a byte at a variable index by updating the containing dword with
+/// shifts and masks. Otherwise SelectionDAG selects each byte separately and
+/// GlobalISel extracts and reinserts the containing dword dynamically.
+bool AMDGPULateCodeGenPrepare::expandDynamicInsertElement(
+    InsertElementInst &IE) const {
+  auto *VecTy = dyn_cast<FixedVectorType>(IE.getType());
+  Value *Idx = IE.getOperand(2);
+  if (!VecTy || isa<Constant>(Idx) || VecTy->getNumElements() != 16 ||
+      !VecTy->getElementType()->isIntegerTy(8))
+    return false;
+
+  IRBuilder<> B(&IE);
+  auto *DwordsTy = FixedVectorType::get(B.getInt32Ty(), 4);
+
+  // Updating a dword reads its neighbouring bytes, so freeze the operands to
+  // keep poison from spreading into the other lanes. The index is used several
+  // times, so freeze it to make every use agree on one position.
+  auto FreezeIfNeeded = [&](Value *V) {
+    return isGuaranteedNotToBeUndefOrPoison(V, AC, &IE) ? V : B.CreateFreeze(V);
+  };
+  Value *Vec = B.CreateBitCast(FreezeIfNeeded(IE.getOperand(0)), DwordsTy);
+  Value *Val = B.CreateZExt(FreezeIfNeeded(IE.getOperand(1)), B.getInt32Ty());
+
+  Idx = B.CreateZExtOrTrunc(FreezeIfNeeded(Idx), B.getInt32Ty());
+  Value *Shift = B.CreateShl(B.CreateAnd(Idx, 3), 3);
+  Value *Mask = B.CreateShl(B.getInt32(0xff), Shift);
+  Value *Ins = B.CreateShl(Val, Shift);
+  Value *DwordIdx = B.CreateLShr(Idx, 2);
+
+  Value *Res;
+  if (UA.isUniformAtUse(IE.getOperandUse(2))) {
+    // A uniform index can select the dword to update directly. The shifted
+    // byte already lies within Mask.
+    Value *Dword = B.CreateExtractElement(Vec, DwordIdx);
+    Value *NewDword =
+        B.CreateDisjointOr(Ins, B.CreateAnd(Dword, B.CreateNot(Mask)));
+    Res = B.CreateInsertElement(Vec, NewDword, DwordIdx);
+  } else {
+    // A divergent index would need a waterfall loop, so update every dword
+    // with the mask cleared in all but the one holding the index.
+    Res = PoisonValue::get(DwordsTy);
+    for (unsigned I = 0; I != 4; ++I) {
+      Value *DwordMask = B.CreateSelect(B.CreateICmpEQ(DwordIdx, B.getInt32(I)),
+                                        Mask, B.getInt32(0));
+      Value *Dword = B.CreateExtractElement(Vec, I);
+      Value *NewDword =
+          B.CreateDisjointOr(B.CreateAnd(Ins, DwordMask),
+                             B.CreateAnd(Dword, B.CreateNot(DwordMask)));
+      Res = B.CreateInsertElement(Res, NewDword, I);
+    }
+  }
+
+  Res = B.CreateBitCast(Res, VecTy);
+  Res->takeName(&IE);
+  IE.replaceAllUsesWith(Res);
+  IE.eraseFromParent();
   return true;
 }
 

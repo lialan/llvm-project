@@ -8,11 +8,13 @@ define amdgpu_kernel void @v3i8_liveout(ptr addrspace(1) %src1, ptr addrspace(1)
 ; GFX906-NEXT:    [[IDX:%.*]] = call i32 @llvm.amdgcn.workitem.id.x()
 ; GFX906-NEXT:    [[GEP1:%.*]] = getelementptr <3 x i8>, ptr addrspace(1) [[SRC1]], i32 [[IDX]]
 ; GFX906-NEXT:    [[VEC1:%.*]] = load <3 x i8>, ptr addrspace(1) [[GEP1]], align 4
-; GFX906-NEXT:    [[TMP0:%.*]] = shufflevector <3 x i8> [[VEC1]], <3 x i8> poison, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
+; GFX906-NEXT:    [[TMP4:%.*]] = shufflevector <3 x i8> [[VEC1]], <3 x i8> zeroinitializer, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
+; GFX906-NEXT:    [[TMP0:%.*]] = freeze <4 x i8> [[TMP4]]
 ; GFX906-NEXT:    [[VEC1_BC:%.*]] = bitcast <4 x i8> [[TMP0]] to i32
 ; GFX906-NEXT:    [[GEP2:%.*]] = getelementptr <3 x i8>, ptr addrspace(1) [[SRC2]], i32 [[IDX]]
 ; GFX906-NEXT:    [[VEC2:%.*]] = load <3 x i8>, ptr addrspace(1) [[GEP2]], align 4
-; GFX906-NEXT:    [[TMP1:%.*]] = shufflevector <3 x i8> [[VEC2]], <3 x i8> poison, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
+; GFX906-NEXT:    [[TMP5:%.*]] = shufflevector <3 x i8> [[VEC2]], <3 x i8> zeroinitializer, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
+; GFX906-NEXT:    [[TMP1:%.*]] = freeze <4 x i8> [[TMP5]]
 ; GFX906-NEXT:    [[VEC2_BC:%.*]] = bitcast <4 x i8> [[TMP1]] to i32
 ; GFX906-NEXT:    [[CMP:%.*]] = icmp ult i32 [[IDX]], 15
 ; GFX906-NEXT:    br i1 [[CMP]], label [[BB_1:%.*]], label [[BB_2:%.*]]
@@ -49,10 +51,12 @@ define amdgpu_kernel void @v4i8_liveout(ptr addrspace(1) %src1, ptr addrspace(1)
 ; GFX906-NEXT:    [[IDX:%.*]] = call i32 @llvm.amdgcn.workitem.id.x()
 ; GFX906-NEXT:    [[GEP1:%.*]] = getelementptr <4 x i8>, ptr addrspace(1) [[SRC1]], i32 [[IDX]]
 ; GFX906-NEXT:    [[VEC1:%.*]] = load <4 x i8>, ptr addrspace(1) [[GEP1]], align 4
-; GFX906-NEXT:    [[VEC1_BC:%.*]] = bitcast <4 x i8> [[VEC1]] to i32
+; GFX906-NEXT:    [[VEC1_FR:%.*]] = freeze <4 x i8> [[VEC1]]
+; GFX906-NEXT:    [[VEC1_BC:%.*]] = bitcast <4 x i8> [[VEC1_FR]] to i32
 ; GFX906-NEXT:    [[GEP2:%.*]] = getelementptr <4 x i8>, ptr addrspace(1) [[SRC2]], i32 [[IDX]]
 ; GFX906-NEXT:    [[VEC2:%.*]] = load <4 x i8>, ptr addrspace(1) [[GEP2]], align 4
-; GFX906-NEXT:    [[VEC2_BC:%.*]] = bitcast <4 x i8> [[VEC2]] to i32
+; GFX906-NEXT:    [[VEC2_FR:%.*]] = freeze <4 x i8> [[VEC2]]
+; GFX906-NEXT:    [[VEC2_BC:%.*]] = bitcast <4 x i8> [[VEC2_FR]] to i32
 ; GFX906-NEXT:    [[CMP:%.*]] = icmp ult i32 [[IDX]], 15
 ; GFX906-NEXT:    br i1 [[CMP]], label [[BB_1:%.*]], label [[BB_2:%.*]]
 ; GFX906:       bb.1:
@@ -87,11 +91,13 @@ define amdgpu_kernel void @v5i8_liveout(ptr addrspace(1) %src1, ptr addrspace(1)
 ; GFX906-NEXT:    [[IDX:%.*]] = call i32 @llvm.amdgcn.workitem.id.x()
 ; GFX906-NEXT:    [[GEP1:%.*]] = getelementptr <5 x i8>, ptr addrspace(1) [[SRC1]], i32 [[IDX]]
 ; GFX906-NEXT:    [[VEC1:%.*]] = load <5 x i8>, ptr addrspace(1) [[GEP1]], align 8
-; GFX906-NEXT:    [[TMP0:%.*]] = shufflevector <5 x i8> [[VEC1]], <5 x i8> poison, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 5, i32 5>
+; GFX906-NEXT:    [[TMP4:%.*]] = shufflevector <5 x i8> [[VEC1]], <5 x i8> zeroinitializer, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 5, i32 5>
+; GFX906-NEXT:    [[TMP0:%.*]] = freeze <8 x i8> [[TMP4]]
 ; GFX906-NEXT:    [[VEC1_BC:%.*]] = bitcast <8 x i8> [[TMP0]] to <2 x i32>
 ; GFX906-NEXT:    [[GEP2:%.*]] = getelementptr <5 x i8>, ptr addrspace(1) [[SRC2]], i32 [[IDX]]
 ; GFX906-NEXT:    [[VEC2:%.*]] = load <5 x i8>, ptr addrspace(1) [[GEP2]], align 8
-; GFX906-NEXT:    [[TMP1:%.*]] = shufflevector <5 x i8> [[VEC2]], <5 x i8> poison, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 5, i32 5>
+; GFX906-NEXT:    [[TMP5:%.*]] = shufflevector <5 x i8> [[VEC2]], <5 x i8> zeroinitializer, <8 x i32> <i32 0, i32 1, i32 2, i32 3, i32 4, i32 5, i32 5, i32 5>
+; GFX906-NEXT:    [[TMP1:%.*]] = freeze <8 x i8> [[TMP5]]
 ; GFX906-NEXT:    [[VEC2_BC:%.*]] = bitcast <8 x i8> [[TMP1]] to <2 x i32>
 ; GFX906-NEXT:    [[CMP:%.*]] = icmp ult i32 [[IDX]], 15
 ; GFX906-NEXT:    br i1 [[CMP]], label [[BB_1:%.*]], label [[BB_2:%.*]]
@@ -128,10 +134,12 @@ define amdgpu_kernel void @v8i8_liveout(ptr addrspace(1) %src1, ptr addrspace(1)
 ; GFX906-NEXT:    [[IDX:%.*]] = call i32 @llvm.amdgcn.workitem.id.x()
 ; GFX906-NEXT:    [[GEP1:%.*]] = getelementptr <8 x i8>, ptr addrspace(1) [[SRC1]], i32 [[IDX]]
 ; GFX906-NEXT:    [[VEC1:%.*]] = load <8 x i8>, ptr addrspace(1) [[GEP1]], align 8
-; GFX906-NEXT:    [[VEC1_BC:%.*]] = bitcast <8 x i8> [[VEC1]] to <2 x i32>
+; GFX906-NEXT:    [[VEC1_FR:%.*]] = freeze <8 x i8> [[VEC1]]
+; GFX906-NEXT:    [[VEC1_BC:%.*]] = bitcast <8 x i8> [[VEC1_FR]] to <2 x i32>
 ; GFX906-NEXT:    [[GEP2:%.*]] = getelementptr <8 x i8>, ptr addrspace(1) [[SRC2]], i32 [[IDX]]
 ; GFX906-NEXT:    [[VEC2:%.*]] = load <8 x i8>, ptr addrspace(1) [[GEP2]], align 8
-; GFX906-NEXT:    [[VEC2_BC:%.*]] = bitcast <8 x i8> [[VEC2]] to <2 x i32>
+; GFX906-NEXT:    [[VEC2_FR:%.*]] = freeze <8 x i8> [[VEC2]]
+; GFX906-NEXT:    [[VEC2_BC:%.*]] = bitcast <8 x i8> [[VEC2_FR]] to <2 x i32>
 ; GFX906-NEXT:    [[CMP:%.*]] = icmp ult i32 [[IDX]], 15
 ; GFX906-NEXT:    br i1 [[CMP]], label [[BB_1:%.*]], label [[BB_2:%.*]]
 ; GFX906:       bb.1:
@@ -166,10 +174,12 @@ define amdgpu_kernel void @repeat_successor(i32 %in, ptr addrspace(1) %src1, ptr
 ; GFX906-NEXT:    [[IDX:%.*]] = call i32 @llvm.amdgcn.workitem.id.x()
 ; GFX906-NEXT:    [[GEP1:%.*]] = getelementptr <4 x i8>, ptr addrspace(1) [[SRC1]], i32 [[IDX]]
 ; GFX906-NEXT:    [[VEC1:%.*]] = load <4 x i8>, ptr addrspace(1) [[GEP1]], align 4
-; GFX906-NEXT:    [[VEC1_BC:%.*]] = bitcast <4 x i8> [[VEC1]] to i32
+; GFX906-NEXT:    [[VEC1_FR:%.*]] = freeze <4 x i8> [[VEC1]]
+; GFX906-NEXT:    [[VEC1_BC:%.*]] = bitcast <4 x i8> [[VEC1_FR]] to i32
 ; GFX906-NEXT:    [[GEP2:%.*]] = getelementptr <4 x i8>, ptr addrspace(1) [[SRC2]], i32 [[IDX]]
 ; GFX906-NEXT:    [[VEC2:%.*]] = load <4 x i8>, ptr addrspace(1) [[GEP2]], align 4
-; GFX906-NEXT:    [[VEC2_BC:%.*]] = bitcast <4 x i8> [[VEC2]] to i32
+; GFX906-NEXT:    [[VEC2_FR:%.*]] = freeze <4 x i8> [[VEC2]]
+; GFX906-NEXT:    [[VEC2_BC:%.*]] = bitcast <4 x i8> [[VEC2_FR]] to i32
 ; GFX906-NEXT:    switch i32 [[IN]], label [[RETURN:%.*]] [
 ; GFX906-NEXT:      i32 1, label [[RETURN_SINK_SPLIT:%.*]]
 ; GFX906-NEXT:      i32 2, label [[RETURN_SINK_SPLIT]]
@@ -216,10 +226,12 @@ define amdgpu_kernel void @v8i8_phi_chain(ptr addrspace(1) %src1, ptr addrspace(
 ; GFX906-NEXT:    [[IDX:%.*]] = call i32 @llvm.amdgcn.workitem.id.x()
 ; GFX906-NEXT:    [[GEP1:%.*]] = getelementptr <8 x i8>, ptr addrspace(1) [[SRC1]], i32 [[IDX]]
 ; GFX906-NEXT:    [[VEC1:%.*]] = load <8 x i8>, ptr addrspace(1) [[GEP1]], align 8
-; GFX906-NEXT:    [[VEC1_BC:%.*]] = bitcast <8 x i8> [[VEC1]] to <2 x i32>
+; GFX906-NEXT:    [[VEC1_FR:%.*]] = freeze <8 x i8> [[VEC1]]
+; GFX906-NEXT:    [[VEC1_BC:%.*]] = bitcast <8 x i8> [[VEC1_FR]] to <2 x i32>
 ; GFX906-NEXT:    [[GEP2:%.*]] = getelementptr <8 x i8>, ptr addrspace(1) [[SRC2]], i32 [[IDX]]
 ; GFX906-NEXT:    [[VEC2:%.*]] = load <8 x i8>, ptr addrspace(1) [[GEP2]], align 8
-; GFX906-NEXT:    [[VEC2_BC:%.*]] = bitcast <8 x i8> [[VEC2]] to <2 x i32>
+; GFX906-NEXT:    [[VEC2_FR:%.*]] = freeze <8 x i8> [[VEC2]]
+; GFX906-NEXT:    [[VEC2_BC:%.*]] = bitcast <8 x i8> [[VEC2_FR]] to <2 x i32>
 ; GFX906-NEXT:    [[CMP:%.*]] = icmp ult i32 [[IDX]], 15
 ; GFX906-NEXT:    br i1 [[CMP]], label [[BB_1:%.*]], label [[BB_2:%.*]]
 ; GFX906:       bb.1:
@@ -266,10 +278,12 @@ define amdgpu_kernel void @v8i8_multi_block(ptr addrspace(1) %src1, ptr addrspac
 ; GFX906-NEXT:    [[IDX:%.*]] = call i32 @llvm.amdgcn.workitem.id.x()
 ; GFX906-NEXT:    [[GEP1:%.*]] = getelementptr <8 x i8>, ptr addrspace(1) [[SRC1]], i32 [[IDX]]
 ; GFX906-NEXT:    [[VEC1:%.*]] = load <8 x i8>, ptr addrspace(1) [[GEP1]], align 8
-; GFX906-NEXT:    [[VEC1_BC:%.*]] = bitcast <8 x i8> [[VEC1]] to <2 x i32>
+; GFX906-NEXT:    [[VEC1_FR:%.*]] = freeze <8 x i8> [[VEC1]]
+; GFX906-NEXT:    [[VEC1_BC:%.*]] = bitcast <8 x i8> [[VEC1_FR]] to <2 x i32>
 ; GFX906-NEXT:    [[GEP2:%.*]] = getelementptr <8 x i8>, ptr addrspace(1) [[SRC2]], i32 [[IDX]]
 ; GFX906-NEXT:    [[VEC2:%.*]] = load <8 x i8>, ptr addrspace(1) [[GEP2]], align 8
-; GFX906-NEXT:    [[VEC2_BC:%.*]] = bitcast <8 x i8> [[VEC2]] to <2 x i32>
+; GFX906-NEXT:    [[VEC2_FR:%.*]] = freeze <8 x i8> [[VEC2]]
+; GFX906-NEXT:    [[VEC2_BC:%.*]] = bitcast <8 x i8> [[VEC2_FR]] to <2 x i32>
 ; GFX906-NEXT:    [[CMP:%.*]] = icmp ult i32 [[IDX]], 15
 ; GFX906-NEXT:    br i1 [[CMP]], label [[BB_1:%.*]], label [[BB_3:%.*]]
 ; GFX906:       bb.1:
@@ -314,14 +328,16 @@ define amdgpu_kernel void @v32i8_loop_carried(ptr addrspace(1) %src1, ptr addrsp
 ; GFX906-NEXT:    [[IDX:%.*]] = call i32 @llvm.amdgcn.workitem.id.x()
 ; GFX906-NEXT:    [[GEP1:%.*]] = getelementptr <32 x i8>, ptr addrspace(1) [[SRC1]], i32 [[IDX]]
 ; GFX906-NEXT:    [[VEC1:%.*]] = load <4 x i8>, ptr addrspace(1) [[GEP1]], align 4
-; GFX906-NEXT:    [[VEC1_BC:%.*]] = bitcast <4 x i8> [[VEC1]] to i32
+; GFX906-NEXT:    [[VEC1_FR:%.*]] = freeze <4 x i8> [[VEC1]]
+; GFX906-NEXT:    [[VEC1_BC:%.*]] = bitcast <4 x i8> [[VEC1_FR]] to i32
 ; GFX906-NEXT:    br label [[BB_1:%.*]]
 ; GFX906:       bb.1:
 ; GFX906-NEXT:    [[TEMP_TC:%.*]] = phi i32 [ [[VEC1_BC]], [[ENTRY:%.*]] ], [ [[VEC2_BC:%.*]], [[BB_1]] ]
 ; GFX906-NEXT:    [[TEMP_TC_BC:%.*]] = bitcast i32 [[TEMP_TC]] to <4 x i8>
 ; GFX906-NEXT:    [[VEC1_BC_BC:%.*]] = bitcast i32 [[VEC1_BC]] to <4 x i8>
 ; GFX906-NEXT:    [[VEC2:%.*]] = shufflevector <4 x i8> [[VEC1_BC_BC]], <4 x i8> [[TEMP_TC_BC]], <4 x i32> <i32 0, i32 2, i32 4, i32 6>
-; GFX906-NEXT:    [[VEC2_BC]] = bitcast <4 x i8> [[VEC2]] to i32
+; GFX906-NEXT:    [[VEC2_FR:%.*]] = freeze <4 x i8> [[VEC2]]
+; GFX906-NEXT:    [[VEC2_BC]] = bitcast <4 x i8> [[VEC2_FR]] to i32
 ; GFX906-NEXT:    [[CMP:%.*]] = icmp ult i32 [[IDX]], 15
 ; GFX906-NEXT:    br i1 [[CMP]], label [[BB_1]], label [[BB_2:%.*]]
 ; GFX906:       0:

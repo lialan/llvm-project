@@ -262,10 +262,16 @@ Value *LiveRegOptimizer::convertToOptType(Instruction *V,
   TypeSize NewSize = DL.getTypeSizeInBits(NewTy);
 
   IRBuilder<> Builder(InsertPt);
+  // Packing merges lanes, so a poison lane would poison its neighbours too.
+  const bool NeedsFreeze = !isGuaranteedNotToBePoison(V);
+
   // If there is a bitsize match, we can fit the old vector into a new vector of
   // desired type.
-  if (OriginalSize == NewSize)
-    return Builder.CreateBitCast(V, NewTy, V->getName() + ".bc");
+  if (OriginalSize == NewSize) {
+    Value *Packed =
+        NeedsFreeze ? Builder.CreateFreeze(V, V->getName() + ".fr") : V;
+    return Builder.CreateBitCast(Packed, NewTy, V->getName() + ".bc");
+  }
 
   // If there is a bitsize mismatch, we must use a wider vector.
   assert(NewSize > OriginalSize);
@@ -279,7 +285,12 @@ Value *LiveRegOptimizer::convertToOptType(Instruction *V,
   for (uint64_t I = OriginalElementCount; I < ExpandedVecElementCount; I++)
     ShuffleMask.push_back(OriginalElementCount);
 
-  Value *ExpandedVec = Builder.CreateShuffleVector(V, ShuffleMask);
+  // Pad with zeros rather than poison for the same reason, and freeze after
+  // padding so the frozen vector fills whole registers.
+  Value *ExpandedVec =
+      Builder.CreateShuffleVector(V, Constant::getNullValue(VTy), ShuffleMask);
+  if (NeedsFreeze)
+    ExpandedVec = Builder.CreateFreeze(ExpandedVec, V->getName() + ".fr");
   return Builder.CreateBitCast(ExpandedVec, NewTy, V->getName() + ".bc");
 }
 

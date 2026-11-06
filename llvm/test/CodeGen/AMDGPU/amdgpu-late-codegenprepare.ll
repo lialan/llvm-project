@@ -454,7 +454,8 @@ define amdgpu_kernel void @use_in_landingpad_block(ptr addrspace(1) %in, ptr add
 ; GFX9-LABEL: @use_in_landingpad_block(
 ; GFX9-NEXT:  entry:
 ; GFX9-NEXT:    [[V:%.*]] = load <4 x i8>, ptr addrspace(1) [[IN:%.*]], align 4
-; GFX9-NEXT:    [[V_BC:%.*]] = bitcast <4 x i8> [[V]] to i32
+; GFX9-NEXT:    [[V_FR:%.*]] = freeze <4 x i8> [[V]]
+; GFX9-NEXT:    [[V_BC:%.*]] = bitcast <4 x i8> [[V_FR]] to i32
 ; GFX9-NEXT:    invoke void @maybe_throw()
 ; GFX9-NEXT:            to label [[CONT:%.*]] unwind label [[LPAD:%.*]]
 ; GFX9:       cont:
@@ -471,7 +472,8 @@ define amdgpu_kernel void @use_in_landingpad_block(ptr addrspace(1) %in, ptr add
 ; GFX12-LABEL: @use_in_landingpad_block(
 ; GFX12-NEXT:  entry:
 ; GFX12-NEXT:    [[V:%.*]] = load <4 x i8>, ptr addrspace(1) [[IN:%.*]], align 4
-; GFX12-NEXT:    [[V_BC:%.*]] = bitcast <4 x i8> [[V]] to i32
+; GFX12-NEXT:    [[V_FR:%.*]] = freeze <4 x i8> [[V]]
+; GFX12-NEXT:    [[V_BC:%.*]] = bitcast <4 x i8> [[V_FR]] to i32
 ; GFX12-NEXT:    invoke void @maybe_throw()
 ; GFX12-NEXT:            to label [[CONT:%.*]] unwind label [[LPAD:%.*]]
 ; GFX12:       cont:

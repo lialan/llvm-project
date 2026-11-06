@@ -937,16 +937,27 @@ AMDGPULegalizerInfo::AMDGPULegalizerInfo(const GCNSubtarget &ST_,
 
   getActionDefinitionsBuilder(G_FCONSTANT).legalFor({F32, F64, F16, BF16});
 
-  getActionDefinitionsBuilder({G_IMPLICIT_DEF, G_FREEZE})
-      .legalIf(isRegisterClassType(ST, 0))
-      // s1 and s16 are special cases because they have legal operations on
-      // them, but don't really occupy registers in the normal way.
-      .legalFor({S1, S16})
-      .clampNumElements(0, V16S32, V32S32)
-      .moreElementsIf(isSmallOddVector(0), oneMoreElement(0))
-      .clampScalarOrElt(0, S32, MaxScalar)
-      .widenScalarToNextPow2(0, 32)
-      .clampMaxNumElements(0, S32, 16);
+  for (unsigned Opc : {G_IMPLICIT_DEF, G_FREEZE}) {
+    auto &Builder = getActionDefinitionsBuilder(Opc)
+                        .legalIf(isRegisterClassType(ST, 0))
+                        // s1 and s16 are special cases because they have legal
+                        // operations on them, but don't really occupy
+                        // registers in the normal way.
+                        .legalFor({S1, S16});
+    // Freeze byte vectors as dwords rather than widening each byte. Odd byte
+    // vectors are not packed, so keep widening their elements.
+    if (Opc == G_FREEZE)
+      Builder
+          .widenScalarIf(all(elementTypeIs(0, S8), isSmallOddVector(0)),
+                         changeElementTo(0, LLT::integer(32)))
+          .bitcastIf(all(elementTypeIs(0, S8), sizeIsMultipleOf32(0)),
+                     bitcastToVectorElement32(0));
+    Builder.clampNumElements(0, V16S32, V32S32)
+        .moreElementsIf(isSmallOddVector(0), oneMoreElement(0))
+        .clampScalarOrElt(0, S32, MaxScalar)
+        .widenScalarToNextPow2(0, 32)
+        .clampMaxNumElements(0, S32, 16);
+  }
 
   getActionDefinitionsBuilder(G_FRAME_INDEX).legalFor({PrivatePtr});
 

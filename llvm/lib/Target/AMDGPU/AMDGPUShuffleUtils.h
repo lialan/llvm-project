@@ -15,6 +15,8 @@
 #ifndef LLVM_LIB_TARGET_AMDGPU_AMDGPUSHUFFLEUTILS_H
 #define LLVM_LIB_TARGET_AMDGPU_AMDGPUSHUFFLEUTILS_H
 
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
 #include <cstdint>
 
 namespace llvm::AMDGPU {
@@ -51,6 +53,39 @@ bool isAlignedRegPairSlice(unsigned EltBits, unsigned SliceBits,
 /// Return the source modifiers for a V_PK_MOV_B32 operand that supplies lane
 /// \p L.Lane of a 64-bit register pair.
 unsigned getPkMovB32SrcMods(ShufflePairLane L);
+
+/// How a 2-element piece of a shuffle result is formed.
+enum class ShufflePieceKind {
+  /// Both lanes read one aligned pair in order, so the piece is a subvector
+  /// of an operand.
+  PairSlice,
+  /// The lanes blend two aligned pairs odd-to-even, so the piece is a
+  /// 2-element shuffle that is selected as V_PK_MOV_B32.
+  PairBlend,
+  /// The piece is built from individual elements.
+  Elements,
+};
+
+/// A 2-element piece of a shuffle result.
+struct ShufflePiece {
+  ShufflePieceKind Kind;
+  ShufflePairLane Lo;
+  ShufflePairLane Hi;
+};
+
+/// Split the result of a shuffle with mask \p Mask into 2-element pieces.
+/// The operands have \p SrcNumElts elements of \p EltBits bits each. Both
+/// SelectionDAG and GlobalISel lower shuffles from this plan.
+SmallVector<ShufflePiece, 16> planShuffleByPairs(ArrayRef<int> Mask,
+                                                 int SrcNumElts,
+                                                 unsigned EltBits,
+                                                 bool HasPkMovB32);
+
+/// Return true if a shuffle of operands with \p SrcNumElts elements into a
+/// result with \p DstNumElts elements, all \p EltBits wide, is lowered by
+/// planShuffleByPairs.
+bool shouldLowerShuffleByPairs(unsigned EltBits, unsigned DstNumElts,
+                               unsigned SrcNumElts, bool HasVOP3PInsts);
 
 } // namespace llvm::AMDGPU
 

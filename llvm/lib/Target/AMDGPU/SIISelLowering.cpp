@@ -9885,11 +9885,6 @@ SDValue SITargetLowering::lowerEXTRACT_VECTOR_ELT(SDValue Op,
   return DAG.getAnyExtOrTrunc(Elt, SL, ResultVT);
 }
 
-static bool elementPairIsContiguous(ArrayRef<int> Mask, int Elt) {
-  assert(Elt % 2 == 0);
-  return Mask[Elt + 1] == Mask[Elt] + 1 && (Mask[Elt] % 2 == 0);
-}
-
 SDValue SITargetLowering::lowerVECTOR_SHUFFLE(SDValue Op,
                                               SelectionDAG &DAG) const {
   SDLoc SL(Op);
@@ -9902,96 +9897,52 @@ SDValue SITargetLowering::lowerVECTOR_SHUFFLE(SDValue Op,
 
   // Break up the shuffle into registers sized pieces.
   //
-  // We're trying to form sub-shuffles that the register allocation pipeline
-  // won't be able to figure out, like how to use v_pk_mov_b32 to do a register
-  // blend or 16-bit op_sel. It should be able to figure out how to reassemble a
-  // pair of copies into a consecutive register copy, so use the ordinary
-  // extract_vector_elt lowering unless we can use the shuffle.
-  //
-  // TODO: This is a bit of hack, and we should probably always use
-  // extract_subvector for the largest possible subvector we can (or at least
-  // use it for PackVT aligned pieces). However we have worse support for
-  // combines on them don't directly treat extract_subvector / insert_subvector
-  // as legal. The DAG scheduler also ends up doing a worse job with the
-  // extract_subvectors.
-  const bool ShouldUseConsecutiveExtract = EltVT.getSizeInBits() == 16;
-
   // vector_shuffle <0,1,6,7> lhs, rhs
   // -> concat_vectors (extract_subvector lhs, 0), (extract_subvector rhs, 2)
   //
-  // vector_shuffle <6,7,2,3> lhs, rhs
-  // -> concat_vectors (extract_subvector rhs, 2), (extract_subvector lhs, 2)
-  //
-  // vector_shuffle <6,7,0,1> lhs, rhs
-  // -> concat_vectors (extract_subvector rhs, 2), (extract_subvector lhs, 0)
-
-  // Avoid scalarizing when both halves are reading from consecutive elements.
-
   // If we're treating 2 element shuffles as legal, also create odd-to-even
   // shuffles of neighboring pairs.
   //
   // vector_shuffle <3,2,7,6> lhs, rhs
   //  -> concat_vectors vector_shuffle <1, 0> (extract_subvector lhs, 0)
   //                    vector_shuffle <1, 0> (extract_subvector rhs, 2)
+  auto getPair = [&](AMDGPU::ShufflePairLane L) {
+    return DAG.getNode(ISD::EXTRACT_SUBVECTOR, SL, PackVT,
+                       SVN->getOperand(L.Src),
+                       DAG.getConstant(L.PairIdx, SL, MVT::i32));
+  };
+  auto getElt = [&](AMDGPU::ShufflePairLane L) {
+    if (L.isUndef())
+      return DAG.getPOISON(EltVT);
+    return DAG.getNode(ISD::EXTRACT_VECTOR_ELT, SL, EltVT,
+                       SVN->getOperand(L.Src),
+                       DAG.getConstant(L.PairIdx + L.Lane, SL, MVT::i32));
+  };
 
   SmallVector<SDValue, 16> Pieces;
-  for (int I = 0, N = ResultVT.getVectorNumElements(); I != N; I += 2) {
-    AMDGPU::ShufflePairLane Lane0 =
-        AMDGPU::getShufflePairLane(SVN->getMaskElt(I), SrcNumElts);
-    AMDGPU::ShufflePairLane Lane1 =
-        AMDGPU::getShufflePairLane(SVN->getMaskElt(I + 1), SrcNumElts);
-
-    if (ShouldUseConsecutiveExtract &&
-        elementPairIsContiguous(SVN->getMask(), I)) {
-      const int Idx = SVN->getMaskElt(I);
-      int VecIdx = Idx < SrcNumElts ? 0 : 1;
-      int EltIdx = Idx < SrcNumElts ? Idx : Idx - SrcNumElts;
-      SDValue SubVec = DAG.getNode(ISD::EXTRACT_SUBVECTOR, SL, PackVT,
-                                   SVN->getOperand(VecIdx),
-                                   DAG.getConstant(EltIdx, SL, MVT::i32));
-      Pieces.push_back(SubVec);
-    } else if (AMDGPU::isOddToEvenPairBlend(Lane0, Lane1) &&
-               isOperationLegal(ISD::VECTOR_SHUFFLE, PackVT)) {
-      // Extract nearest even aligned piece.
-      SDValue SubVec0 = DAG.getNode(
-          ISD::EXTRACT_SUBVECTOR, SL, PackVT, SVN->getOperand(Lane0.Src),
-          DAG.getConstant(Lane0.PairIdx, SL, MVT::i32));
-      SDValue SubVec1 = DAG.getNode(
-          ISD::EXTRACT_SUBVECTOR, SL, PackVT, SVN->getOperand(Lane1.Src),
-          DAG.getConstant(Lane1.PairIdx, SL, MVT::i32));
-
-      int NewMaskIdx0 = Lane0.Lane;
-      int NewMaskIdx1 = Lane1.Lane;
-
-      SDValue Result0 = SubVec0;
-      SDValue Result1 = SubVec0;
-
-      if (SubVec0 != SubVec1) {
+  for (const AMDGPU::ShufflePiece &P : AMDGPU::planShuffleByPairs(
+           SVN->getMask(), SrcNumElts, EltVT.getSizeInBits(),
+           Subtarget->hasPkMovB32())) {
+    switch (P.Kind) {
+    case AMDGPU::ShufflePieceKind::PairSlice:
+      Pieces.push_back(getPair(P.Lo));
+      break;
+    case AMDGPU::ShufflePieceKind::PairBlend: {
+      SDValue SubVec0 = getPair(P.Lo);
+      SDValue SubVec1 = getPair(P.Hi);
+      int NewMaskIdx1 = P.Hi.Lane;
+      if (SubVec0 != SubVec1)
         NewMaskIdx1 += NewSrcNumElts;
-        Result1 = SubVec1;
-      } else {
-        Result1 = DAG.getPOISON(PackVT);
-      }
-
-      SDValue Shuf = DAG.getVectorShuffle(PackVT, SL, Result0, Result1,
-                                          {NewMaskIdx0, NewMaskIdx1});
-      Pieces.push_back(Shuf);
-    } else {
-      const int Idx0 = SVN->getMaskElt(I);
-      const int Idx1 = SVN->getMaskElt(I + 1);
-      int VecIdx0 = Idx0 < SrcNumElts ? 0 : 1;
-      int VecIdx1 = Idx1 < SrcNumElts ? 0 : 1;
-      int EltIdx0 = Idx0 < SrcNumElts ? Idx0 : Idx0 - SrcNumElts;
-      int EltIdx1 = Idx1 < SrcNumElts ? Idx1 : Idx1 - SrcNumElts;
-
-      SDValue Vec0 = SVN->getOperand(VecIdx0);
-      SDValue Elt0 = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, SL, EltVT, Vec0,
-                                 DAG.getSignedConstant(EltIdx0, SL, MVT::i32));
-
-      SDValue Vec1 = SVN->getOperand(VecIdx1);
-      SDValue Elt1 = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, SL, EltVT, Vec1,
-                                 DAG.getSignedConstant(EltIdx1, SL, MVT::i32));
-      Pieces.push_back(DAG.getBuildVector(PackVT, SL, {Elt0, Elt1}));
+      else
+        SubVec1 = DAG.getPOISON(PackVT);
+      Pieces.push_back(DAG.getVectorShuffle(PackVT, SL, SubVec0, SubVec1,
+                                            {P.Lo.Lane, NewMaskIdx1}));
+      break;
+    }
+    case AMDGPU::ShufflePieceKind::Elements:
+      Pieces.push_back(
+          DAG.getBuildVector(PackVT, SL, {getElt(P.Lo), getElt(P.Hi)}));
+      break;
     }
   }
 

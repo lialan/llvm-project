@@ -39,3 +39,49 @@ unsigned AMDGPU::getPkMovB32SrcMods(ShufflePairLane L) {
   // printing it; it has no effect on the result.
   return (L.Lane ? SISrcMods::OP_SEL_0 : SISrcMods::NONE) | SISrcMods::OP_SEL_1;
 }
+
+static bool isSamePairInOrder(AMDGPU::ShufflePairLane Lo,
+                              AMDGPU::ShufflePairLane Hi) {
+  return !Lo.isUndef() && Lo.Src == Hi.Src && Lo.PairIdx == Hi.PairIdx &&
+         Lo.Lane == 0 && Hi.Lane == 1;
+}
+
+SmallVector<AMDGPU::ShufflePiece, 16>
+AMDGPU::planShuffleByPairs(ArrayRef<int> Mask, int SrcNumElts, unsigned EltBits,
+                           bool HasPkMovB32) {
+  assert(Mask.size() % 2 == 0 && "result must split into pairs");
+
+  // We're trying to form pieces that the register allocation pipeline won't
+  // be able to figure out, like how to use v_pk_mov_b32 to do a register
+  // blend or 16-bit op_sel. It should be able to figure out how to reassemble
+  // a pair of copies into a consecutive register copy, so use individual
+  // elements unless a subvector or a 2-element shuffle helps.
+  //
+  // TODO: This is a bit of hack, and we should probably always use the largest
+  // possible subvector we can (or at least use it for aligned pairs). However
+  // we have worse support for combines on them, and the DAG scheduler also
+  // ends up doing a worse job with the extract_subvectors.
+  SmallVector<ShufflePiece, 16> Pieces;
+  for (size_t I = 0, E = Mask.size(); I != E; I += 2) {
+    ShufflePairLane Lo = getShufflePairLane(Mask[I], SrcNumElts);
+    ShufflePairLane Hi = getShufflePairLane(Mask[I + 1], SrcNumElts);
+    ShufflePieceKind Kind = ShufflePieceKind::Elements;
+    if (EltBits == 16 && isSamePairInOrder(Lo, Hi))
+      Kind = ShufflePieceKind::PairSlice;
+    else if (EltBits == 32 && HasPkMovB32 && isOddToEvenPairBlend(Lo, Hi))
+      Kind = ShufflePieceKind::PairBlend;
+    Pieces.push_back({Kind, Lo, Hi});
+  }
+  return Pieces;
+}
+
+bool AMDGPU::shouldLowerShuffleByPairs(unsigned EltBits, unsigned DstNumElts,
+                                       unsigned SrcNumElts,
+                                       bool HasVOP3PInsts) {
+  if (DstNumElts % 2 != 0 || SrcNumElts % 2 != 0 || DstNumElts > 32 ||
+      SrcNumElts > 32)
+    return false;
+  if (EltBits == 32)
+    return true;
+  return EltBits == 16 && HasVOP3PInsts && DstNumElts >= 4;
+}

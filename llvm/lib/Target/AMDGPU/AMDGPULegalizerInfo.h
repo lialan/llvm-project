@@ -109,6 +109,8 @@ public:
 
   bool legalizeBuildVector(MachineInstr &MI, MachineRegisterInfo &MRI,
                            MachineIRBuilder &B) const;
+  bool legalizeShuffleVector(MachineInstr &MI, MachineRegisterInfo &MRI,
+                             MachineIRBuilder &B) const;
 
   void buildMultiply(LegalizerHelper &Helper, MutableArrayRef<Register> Accum,
                      ArrayRef<Register> Src0, ArrayRef<Register> Src1,

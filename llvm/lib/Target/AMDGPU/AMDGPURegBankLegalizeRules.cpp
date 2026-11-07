@@ -775,6 +775,11 @@ RegBankLegalizeRules::RegBankLegalizeRules(const GCNSubtarget &_ST,
       .Any({{UniBRC, BRC}, {{}, {}, VerifyAllSgpr}})
       .Any({{DivBRC, BRC}, {{}, {}, ApplyAllVgpr}});
 
+  // The legalizer only leaves 2 x 32-bit shuffles.
+  addRulesForGOpcs({G_SHUFFLE_VECTOR})
+      .Any({{UniBRC}, {{SgprBRC}, {SgprBRC, SgprBRC}}})
+      .Any({{DivBRC}, {{VgprBRC}, {VgprBRC, VgprBRC}}});
+
   addRulesForGOpcs({G_PHI})
       .Any({{UniS1}, {{}, {}, AextToS32InIncomingBlockGPHI}})
       .Any({{UniS16}, {{}, {}, VerifyAllSgprGPHI}})

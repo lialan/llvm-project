@@ -105,8 +105,8 @@ private:
   bool selectS16MergeToWide(MachineInstr &MI) const;
   bool selectG_MERGE_VALUES(MachineInstr &I) const;
   bool selectG_UNMERGE_VALUES(MachineInstr &I) const;
-  bool selectBuildVectorToPkMov(MachineInstr &MI) const;
   bool selectG_BUILD_VECTOR(MachineInstr &I) const;
+  bool selectG_SHUFFLE_VECTOR(MachineInstr &I) const;
   bool selectG_IMPLICIT_DEF(MachineInstr &I) const;
   bool selectG_INSERT(MachineInstr &I) const;
   bool selectG_SBFX_UBFX(MachineInstr &I) const;

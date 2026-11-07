@@ -14,6 +14,7 @@
 #include "AMDGPU.h"
 #include "AMDGPUCombinerHelper.h"
 #include "AMDGPULegalizerInfo.h"
+#include "AMDGPUShuffleUtils.h"
 #include "GCNSubtarget.h"
 #include "llvm/CodeGen/GlobalISel/CSEInfo.h"
 #include "llvm/CodeGen/GlobalISel/Combiner.h"
@@ -21,6 +22,7 @@
 #include "llvm/CodeGen/GlobalISel/CombinerInfo.h"
 #include "llvm/CodeGen/GlobalISel/GIMatchTableExecutorImpl.h"
 #include "llvm/CodeGen/GlobalISel/GISelValueTracking.h"
+#include "llvm/CodeGen/GlobalISel/GenericMachineInstrs.h"
 #include "llvm/CodeGen/GlobalISel/MIPatternMatch.h"
 #include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineFunctionAnalysisManager.h"
@@ -73,6 +75,8 @@ public:
 
   void applyClampI64ToI16(MachineInstr &MI,
                           const ClampI64ToI16MatchInfo &MatchInfo) const;
+
+  bool isShuffleLoweredByPairs(MachineInstr &MI) const;
 
 private:
 #define GET_GICOMBINER_CLASS_MEMBERS
@@ -157,6 +161,26 @@ bool AMDGPUPreLegalizerCombinerImpl::matchClampI64ToI16(
   }
 
   return false;
+}
+
+bool AMDGPUPreLegalizerCombinerImpl::isShuffleLoweredByPairs(
+    MachineInstr &MI) const {
+  auto &Shuffle = cast<GShuffleVector>(MI);
+  LLT DstTy = MRI.getType(Shuffle.getReg(0));
+  LLT SrcTy = MRI.getType(Shuffle.getSrc1Reg());
+  if (!DstTy.isVector() || !SrcTy.isVector() ||
+      !AMDGPU::shouldLowerShuffleByPairs(
+          DstTy.getScalarSizeInBits(), DstTy.getNumElements(),
+          SrcTy.getNumElements(), STI.hasVOP3PInsts()))
+    return false;
+
+  // Only keep the shuffle if some piece is better than individual elements.
+  return any_of(AMDGPU::planShuffleByPairs(
+                    Shuffle.getMask(), SrcTy.getNumElements(),
+                    DstTy.getScalarSizeInBits(), STI.hasPkMovB32()),
+                [](const AMDGPU::ShufflePiece &P) {
+                  return P.Kind != AMDGPU::ShufflePieceKind::Elements;
+                });
 }
 
 // We want to find a combination of instructions that

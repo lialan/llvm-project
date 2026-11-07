@@ -98,6 +98,14 @@ def clamp_i64_to_i16 : GICombineRule<
       [{ return matchClampI64ToI16(*${clamp_i64_to_i16}, MRI, MF, ${matchinfo}); }]),
   (apply [{ applyClampI64ToI16(*${clamp_i64_to_i16}, ${matchinfo}); }])>;
 
+// Like combine_shuffle_vector_to_build_vector, but keep shuffles that the
+// legalizer splits into aligned pairs and pair blends.
+def amdgpu_shuffle_vector_to_build_vector : GICombineRule<
+  (defs root:$root),
+  (match (G_SHUFFLE_VECTOR $dst, $src1, $src2, $mask):$root,
+      [{ return !isShuffleLoweredByPairs(*${root}); }]),
+  (apply [{ Helper.applyCombineShuffleToBuildVector(*${root}); }])>;
+
 def med3_matchdata : GIDefMatchData<"Med3MatchInfo">;
 
 def int_minmax_to_med3_frags : GICombinePatFrag<
@@ -334,7 +342,7 @@ def AMDGPUPreLegalizerCombiner: GICombiner<
   "AMDGPUPreLegalizerCombinerImpl",
   [all_combines, combine_fmul_with_select_to_fldexp, clamp_i64_to_i16,
    foldable_fneg, fold_fabs_fptrunc, combine_shuffle_vector,
-   combine_shuffle_vector_to_build_vector, trunc_lshr16_to_unmerge,
+   amdgpu_shuffle_vector_to_build_vector, trunc_lshr16_to_unmerge,
    binop_s64_with_s32_mask_combines, combine_or_s64_s32]> {
   let CombineAllMethodName = "tryCombineAllImpl";
 }

@@ -13,10 +13,10 @@ body:             |
     ; CHECK-NEXT: {{  $}}
     ; CHECK-NEXT: [[COPY:%[0-9]+]]:_(p3) = COPY $vgpr0
     ; CHECK-NEXT: [[COPY1:%[0-9]+]]:_(p3) = COPY $vgpr1
+    ; CHECK-NEXT: [[DEF:%[0-9]+]]:_(<8 x s16>) = G_IMPLICIT_DEF
     ; CHECK-NEXT: [[LOAD:%[0-9]+]]:_(<8 x s16>) = G_LOAD [[COPY]](p3) :: (load (<8 x s16>), align 8, addrspace 3)
-    ; CHECK-NEXT: [[UV:%[0-9]+]]:_(s16), [[UV1:%[0-9]+]]:_(s16), [[UV2:%[0-9]+]]:_(s16), [[UV3:%[0-9]+]]:_(s16), [[UV4:%[0-9]+]]:_(s16), [[UV5:%[0-9]+]]:_(s16), [[UV6:%[0-9]+]]:_(s16), [[UV7:%[0-9]+]]:_(s16) = G_UNMERGE_VALUES [[LOAD]](<8 x s16>)
-    ; CHECK-NEXT: [[BUILD_VECTOR:%[0-9]+]]:_(<4 x s16>) = G_BUILD_VECTOR [[UV4]](s16), [[UV5]](s16), [[UV6]](s16), [[UV7]](s16)
-    ; CHECK-NEXT: G_STORE [[BUILD_VECTOR]](<4 x s16>), [[COPY1]](p3) :: (store (<4 x s16>), addrspace 3)
+    ; CHECK-NEXT: [[SHUF:%[0-9]+]]:_(<4 x s16>) = G_SHUFFLE_VECTOR [[LOAD]](<8 x s16>), [[DEF]], shufflemask(4, 5, 6, 7)
+    ; CHECK-NEXT: G_STORE [[SHUF]](<4 x s16>), [[COPY1]](p3) :: (store (<4 x s16>), addrspace 3)
     ; CHECK-NEXT: SI_RETURN
     %0:_(p3) = COPY $vgpr0
     %1:_(p3) = COPY $vgpr1
@@ -93,11 +93,10 @@ body:             |
     ; CHECK-NEXT: {{  $}}
     ; CHECK-NEXT: [[COPY:%[0-9]+]]:_(p3) = COPY $vgpr0
     ; CHECK-NEXT: [[COPY1:%[0-9]+]]:_(p3) = COPY $vgpr1
+    ; CHECK-NEXT: [[DEF:%[0-9]+]]:_(<8 x s16>) = G_IMPLICIT_DEF
     ; CHECK-NEXT: [[LOAD:%[0-9]+]]:_(<8 x s16>) = G_LOAD [[COPY]](p3) :: (load (<8 x s16>), align 8, addrspace 3)
-    ; CHECK-NEXT: [[UV:%[0-9]+]]:_(s16), [[UV1:%[0-9]+]]:_(s16), [[UV2:%[0-9]+]]:_(s16), [[UV3:%[0-9]+]]:_(s16), [[UV4:%[0-9]+]]:_(s16), [[UV5:%[0-9]+]]:_(s16), [[UV6:%[0-9]+]]:_(s16), [[UV7:%[0-9]+]]:_(s16) = G_UNMERGE_VALUES [[LOAD]](<8 x s16>)
-    ; CHECK-NEXT: [[DEF:%[0-9]+]]:_(s16) = G_IMPLICIT_DEF
-    ; CHECK-NEXT: [[BUILD_VECTOR:%[0-9]+]]:_(<4 x s16>) = G_BUILD_VECTOR [[UV4]](s16), [[UV5]](s16), [[DEF]](s16), [[UV7]](s16)
-    ; CHECK-NEXT: G_STORE [[BUILD_VECTOR]](<4 x s16>), [[COPY1]](p3) :: (store (<4 x s16>), addrspace 3)
+    ; CHECK-NEXT: [[SHUF:%[0-9]+]]:_(<4 x s16>) = G_SHUFFLE_VECTOR [[LOAD]](<8 x s16>), [[DEF]], shufflemask(4, 5, undef, 7)
+    ; CHECK-NEXT: G_STORE [[SHUF]](<4 x s16>), [[COPY1]](p3) :: (store (<4 x s16>), addrspace 3)
     ; CHECK-NEXT: SI_RETURN
     %0:_(p3) = COPY $vgpr0
     %1:_(p3) = COPY $vgpr1
@@ -120,11 +119,10 @@ body:             |
     ; CHECK-NEXT: {{  $}}
     ; CHECK-NEXT: [[COPY:%[0-9]+]]:_(p3) = COPY $vgpr0
     ; CHECK-NEXT: [[COPY1:%[0-9]+]]:_(p3) = COPY $vgpr1
+    ; CHECK-NEXT: [[DEF:%[0-9]+]]:_(<8 x s16>) = G_IMPLICIT_DEF
     ; CHECK-NEXT: [[LOAD:%[0-9]+]]:_(<8 x s16>) = G_LOAD [[COPY]](p3) :: (load (<8 x s16>), align 8, addrspace 3)
-    ; CHECK-NEXT: [[UV:%[0-9]+]]:_(s16), [[UV1:%[0-9]+]]:_(s16), [[UV2:%[0-9]+]]:_(s16), [[UV3:%[0-9]+]]:_(s16), [[UV4:%[0-9]+]]:_(s16), [[UV5:%[0-9]+]]:_(s16), [[UV6:%[0-9]+]]:_(s16), [[UV7:%[0-9]+]]:_(s16) = G_UNMERGE_VALUES [[LOAD]](<8 x s16>)
-    ; CHECK-NEXT: [[DEF:%[0-9]+]]:_(s16) = G_IMPLICIT_DEF
-    ; CHECK-NEXT: [[BUILD_VECTOR:%[0-9]+]]:_(<4 x s16>) = G_BUILD_VECTOR [[UV6]](s16), [[UV7]](s16), [[DEF]](s16), [[DEF]](s16)
-    ; CHECK-NEXT: G_STORE [[BUILD_VECTOR]](<4 x s16>), [[COPY1]](p3) :: (store (<4 x s16>), addrspace 3)
+    ; CHECK-NEXT: [[SHUF:%[0-9]+]]:_(<4 x s16>) = G_SHUFFLE_VECTOR [[LOAD]](<8 x s16>), [[DEF]], shufflemask(6, 7, undef, undef)
+    ; CHECK-NEXT: G_STORE [[SHUF]](<4 x s16>), [[COPY1]](p3) :: (store (<4 x s16>), addrspace 3)
     ; CHECK-NEXT: SI_RETURN
     %0:_(p3) = COPY $vgpr0
     %1:_(p3) = COPY $vgpr1

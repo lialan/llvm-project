@@ -17,6 +17,7 @@
 #include "AMDGPUGlobalISelUtils.h"
 #include "AMDGPUInstrInfo.h"
 #include "AMDGPUMemoryUtils.h"
+#include "AMDGPUShuffleUtils.h"
 #include "AMDGPUTargetMachine.h"
 #include "SIInstrInfo.h"
 #include "SIMachineFunctionInfo.h"
@@ -2145,7 +2146,22 @@ AMDGPULegalizerInfo::AMDGPULegalizerInfo(const GCNSubtarget &ST_,
       .clampMaxNumElements(1, S16, 2) // TODO: Make 4?
       .clampMaxNumElements(0, S16, 64);
 
-  getActionDefinitionsBuilder(G_SHUFFLE_VECTOR).lower();
+  getActionDefinitionsBuilder(G_SHUFFLE_VECTOR)
+      // A blend of two aligned 32-bit pairs is selected as V_PK_MOV_B32.
+      .legalIf([=](const LegalityQuery &Query) {
+        LLT DstTy = Query.Types[0], SrcTy = Query.Types[1];
+        return ST.hasPkMovB32() && DstTy.isVector() && DstTy == SrcTy &&
+               DstTy.getNumElements() == 2 && DstTy.getScalarSizeInBits() == 32;
+      })
+      // Split into aligned pairs the same way as SelectionDAG.
+      .customIf([=](const LegalityQuery &Query) {
+        LLT DstTy = Query.Types[0], SrcTy = Query.Types[1];
+        return DstTy.isVector() && SrcTy.isVector() &&
+               AMDGPU::shouldLowerShuffleByPairs(
+                   DstTy.getScalarSizeInBits(), DstTy.getNumElements(),
+                   SrcTy.getNumElements(), ST.hasVOP3PInsts());
+      })
+      .lower();
 
   // Merge/Unmerge
   for (unsigned Op : {G_MERGE_VALUES, G_UNMERGE_VALUES}) {
@@ -2444,6 +2460,8 @@ bool AMDGPULegalizerInfo::legalizeCustom(
   case TargetOpcode::G_BUILD_VECTOR:
   case TargetOpcode::G_BUILD_VECTOR_TRUNC:
     return legalizeBuildVector(MI, MRI, B);
+  case TargetOpcode::G_SHUFFLE_VECTOR:
+    return legalizeShuffleVector(MI, MRI, B);
   case TargetOpcode::G_MUL:
     return legalizeMul(Helper, MI);
   case TargetOpcode::G_CTLZ:
@@ -4518,6 +4536,68 @@ bool AMDGPULegalizerInfo::legalizeBuildVector(
   auto Merge = B.buildMergeLikeInstr(I32, {Src0, Src1});
   B.buildBitcast(Dst, Merge);
 
+  MI.eraseFromParent();
+  return true;
+}
+
+bool AMDGPULegalizerInfo::legalizeShuffleVector(MachineInstr &MI,
+                                                MachineRegisterInfo &MRI,
+                                                MachineIRBuilder &B) const {
+  auto &Shuffle = cast<GShuffleVector>(MI);
+  Register Dst = Shuffle.getReg(0);
+  Register Srcs[2] = {Shuffle.getSrc1Reg(), Shuffle.getSrc2Reg()};
+  LLT SrcTy = MRI.getType(Srcs[0]);
+  LLT EltTy = SrcTy.getElementType();
+  LLT PairTy = LLT::fixed_vector(2, EltTy);
+
+  // Unmerging into aligned pairs is the equivalent of SelectionDAG's aligned
+  // extract_subvector: each pair is a subregister of the source.
+  std::optional<MachineInstrBuilder> PairUnmerges[2], EltUnmerges[2];
+  auto getPair = [&](AMDGPU::ShufflePairLane L) {
+    if (!PairUnmerges[L.Src])
+      PairUnmerges[L.Src] = B.buildUnmerge(PairTy, Srcs[L.Src]);
+    return (*PairUnmerges[L.Src]).getReg(L.PairIdx / 2);
+  };
+  auto getElt = [&](AMDGPU::ShufflePairLane L) {
+    if (L.isUndef())
+      return B.buildUndef(EltTy).getReg(0);
+    if (!EltUnmerges[L.Src])
+      EltUnmerges[L.Src] = B.buildUnmerge(EltTy, Srcs[L.Src]);
+    return (*EltUnmerges[L.Src]).getReg(L.PairIdx + L.Lane);
+  };
+
+  SmallVector<Register, 16> Pieces;
+  for (const AMDGPU::ShufflePiece &P :
+       AMDGPU::planShuffleByPairs(Shuffle.getMask(), SrcTy.getNumElements(),
+                                  EltTy.getSizeInBits(), ST.hasPkMovB32())) {
+    switch (P.Kind) {
+    case AMDGPU::ShufflePieceKind::PairSlice:
+      Pieces.push_back(getPair(P.Lo));
+      break;
+    case AMDGPU::ShufflePieceKind::PairBlend: {
+      Register Pair0 = getPair(P.Lo);
+      Register Pair1 = getPair(P.Hi);
+      int NewMaskIdx1 = P.Hi.Lane;
+      if (Pair0 != Pair1)
+        NewMaskIdx1 += 2;
+      else
+        Pair1 = B.buildUndef(PairTy).getReg(0);
+      Pieces.push_back(
+          B.buildShuffleVector(PairTy, Pair0, Pair1, {P.Lo.Lane, NewMaskIdx1})
+              .getReg(0));
+      break;
+    }
+    case AMDGPU::ShufflePieceKind::Elements:
+      Pieces.push_back(
+          B.buildBuildVector(PairTy, {getElt(P.Lo), getElt(P.Hi)}).getReg(0));
+      break;
+    }
+  }
+
+  if (Pieces.size() == 1)
+    B.buildCopy(Dst, Pieces[0]);
+  else
+    B.buildConcatVectors(Dst, Pieces);
   MI.eraseFromParent();
   return true;
 }

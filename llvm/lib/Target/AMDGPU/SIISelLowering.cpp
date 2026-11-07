@@ -18,6 +18,7 @@
 #include "AMDGPULaneMaskUtils.h"
 #include "AMDGPUMemoryUtils.h"
 #include "AMDGPUSelectionDAGInfo.h"
+#include "AMDGPUShuffleUtils.h"
 #include "AMDGPUTargetMachine.h"
 #include "GCNSubtarget.h"
 #include "MCTargetDesc/AMDGPUMCTargetDesc.h"
@@ -2478,9 +2479,15 @@ SITargetLowering::getExtractSubvectorCost(EVT ResVT, EVT SrcVT,
   if (!isOperationLegalOrCustom(ISD::EXTRACT_SUBVECTOR, ResVT))
     return ExtractSubvectorCost::Expensive;
 
-  // TODO: Add more cases that are cheap.
   if (Index == 0)
     return ExtractSubvectorCost::Free;
+
+  // Extract whole register tuples without introducing alignment copies.
+  if (isTypeLegal(ResVT) && isTypeLegal(SrcVT) &&
+      AMDGPU::isAlignedRegPairSlice(SrcVT.getScalarSizeInBits(),
+                                    ResVT.getFixedSizeInBits(), Index))
+    return ExtractSubvectorCost::Free;
+
   return ExtractSubvectorCost::Expensive;
 }
 
@@ -9883,12 +9890,6 @@ static bool elementPairIsContiguous(ArrayRef<int> Mask, int Elt) {
   return Mask[Elt + 1] == Mask[Elt] + 1 && (Mask[Elt] % 2 == 0);
 }
 
-static bool elementPairIsOddToEven(ArrayRef<int> Mask, int Elt) {
-  assert(Elt % 2 == 0);
-  return Mask[Elt] >= 0 && Mask[Elt + 1] >= 0 && (Mask[Elt] & 1) &&
-         !(Mask[Elt + 1] & 1);
-}
-
 SDValue SITargetLowering::lowerVECTOR_SHUFFLE(SDValue Op,
                                               SelectionDAG &DAG) const {
   SDLoc SL(Op);
@@ -9935,6 +9936,11 @@ SDValue SITargetLowering::lowerVECTOR_SHUFFLE(SDValue Op,
 
   SmallVector<SDValue, 16> Pieces;
   for (int I = 0, N = ResultVT.getVectorNumElements(); I != N; I += 2) {
+    AMDGPU::ShufflePairLane Lane0 =
+        AMDGPU::getShufflePairLane(SVN->getMaskElt(I), SrcNumElts);
+    AMDGPU::ShufflePairLane Lane1 =
+        AMDGPU::getShufflePairLane(SVN->getMaskElt(I + 1), SrcNumElts);
+
     if (ShouldUseConsecutiveExtract &&
         elementPairIsContiguous(SVN->getMask(), I)) {
       const int Idx = SVN->getMaskElt(I);
@@ -9944,34 +9950,18 @@ SDValue SITargetLowering::lowerVECTOR_SHUFFLE(SDValue Op,
                                    SVN->getOperand(VecIdx),
                                    DAG.getConstant(EltIdx, SL, MVT::i32));
       Pieces.push_back(SubVec);
-    } else if (elementPairIsOddToEven(SVN->getMask(), I) &&
+    } else if (AMDGPU::isOddToEvenPairBlend(Lane0, Lane1) &&
                isOperationLegal(ISD::VECTOR_SHUFFLE, PackVT)) {
-      int Idx0 = SVN->getMaskElt(I);
-      int Idx1 = SVN->getMaskElt(I + 1);
-
-      SDValue SrcOp0 = SVN->getOperand(0);
-      SDValue SrcOp1 = SrcOp0;
-      if (Idx0 >= SrcNumElts) {
-        SrcOp0 = SVN->getOperand(1);
-        Idx0 -= SrcNumElts;
-      }
-
-      if (Idx1 >= SrcNumElts) {
-        SrcOp1 = SVN->getOperand(1);
-        Idx1 -= SrcNumElts;
-      }
-
-      int AlignedIdx0 = Idx0 & ~(NewSrcNumElts - 1);
-      int AlignedIdx1 = Idx1 & ~(NewSrcNumElts - 1);
-
       // Extract nearest even aligned piece.
-      SDValue SubVec0 = DAG.getNode(ISD::EXTRACT_SUBVECTOR, SL, PackVT, SrcOp0,
-                                    DAG.getConstant(AlignedIdx0, SL, MVT::i32));
-      SDValue SubVec1 = DAG.getNode(ISD::EXTRACT_SUBVECTOR, SL, PackVT, SrcOp1,
-                                    DAG.getConstant(AlignedIdx1, SL, MVT::i32));
+      SDValue SubVec0 = DAG.getNode(
+          ISD::EXTRACT_SUBVECTOR, SL, PackVT, SVN->getOperand(Lane0.Src),
+          DAG.getConstant(Lane0.PairIdx, SL, MVT::i32));
+      SDValue SubVec1 = DAG.getNode(
+          ISD::EXTRACT_SUBVECTOR, SL, PackVT, SVN->getOperand(Lane1.Src),
+          DAG.getConstant(Lane1.PairIdx, SL, MVT::i32));
 
-      int NewMaskIdx0 = Idx0 - AlignedIdx0;
-      int NewMaskIdx1 = Idx1 - AlignedIdx1;
+      int NewMaskIdx0 = Lane0.Lane;
+      int NewMaskIdx1 = Lane1.Lane;
 
       SDValue Result0 = SubVec0;
       SDValue Result1 = SubVec0;

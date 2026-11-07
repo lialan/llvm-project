@@ -26751,6 +26751,10 @@ SDValue DAGCombiner::createBuildVecShuffle(const SDLoc &DL, SDNode *N,
       VecIn1 = DAG.getNode(ISD::CONCAT_VECTORS, DL, VT, ConcatOps);
       VecIn2 = SDValue();
     } else if (InVT1Size == VTSize * 2) {
+      // Custom lowering may rebuild this BUILD_VECTOR and cause a loop.
+      if (LegalOperations && !TLI.isOperationLegal(ISD::EXTRACT_SUBVECTOR, VT))
+        return SDValue();
+
       if (TLI.getExtractSubvectorCost(VT, InVT1, NumElems) >
           TargetLowering::ExtractSubvectorCost::Cheap)
         return SDValue();

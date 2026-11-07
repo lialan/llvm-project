@@ -16,6 +16,7 @@
 #include "AMDGPUGlobalISelUtils.h"
 #include "AMDGPUInstrInfo.h"
 #include "AMDGPURegisterBankInfo.h"
+#include "AMDGPUShuffleUtils.h"
 #include "SIMachineFunctionInfo.h"
 #include "Utils/AMDGPUBaseInfo.h"
 #include "llvm/CodeGen/GlobalISel/GIMatchTableExecutorImpl.h"
@@ -912,6 +913,78 @@ bool AMDGPUInstructionSelector::selectG_UNMERGE_VALUES(MachineInstr &MI) const {
   return true;
 }
 
+bool AMDGPUInstructionSelector::selectBuildVectorToPkMov(
+    MachineInstr &MI) const {
+  Register Dst = MI.getOperand(0).getReg();
+  LLT DstTy = MRI->getType(Dst);
+  if (!STI.hasPkMovB32() || !DstTy.isVector() || DstTy.getNumElements() != 2 ||
+      DstTy.getScalarSizeInBits() != 32 ||
+      RBI.getRegBank(Dst, *MRI, TRI)->getID() != AMDGPU::VGPRRegBankID)
+    return false;
+
+  // Treat each element as a shuffle of the vector it was unmerged from, and
+  // apply the same rules as SelectionDAG's VECTOR_SHUFFLE lowering.
+  Register Srcs[2];
+  AMDGPU::ShufflePairLane Lanes[2];
+  for (unsigned I = 0; I != 2; ++I) {
+    Register Elt = MI.getOperand(I + 1).getReg();
+    auto *Unmerge = dyn_cast<GUnmerge>(MRI->getVRegDef(Elt));
+    if (!Unmerge)
+      return false;
+
+    Srcs[I] = Unmerge->getSourceReg();
+    LLT SrcTy = MRI->getType(Srcs[I]);
+    if (!SrcTy.isVector() || SrcTy.getNumElements() % 2 != 0 ||
+        RBI.getRegBank(Srcs[I], *MRI, TRI)->getID() != AMDGPU::VGPRRegBankID)
+      return false;
+
+    unsigned EltIdx = 0;
+    while (Unmerge->getOperand(EltIdx).getReg() != Elt)
+      ++EltIdx;
+
+    Lanes[I] = AMDGPU::getShufflePairLane(EltIdx, SrcTy.getNumElements());
+    if (!AMDGPU::isAlignedRegPairSlice(SrcTy.getScalarSizeInBits(), 64,
+                                       Lanes[I].PairIdx))
+      return false;
+  }
+
+  if (!AMDGPU::isOddToEvenPairBlend(Lanes[0], Lanes[1]))
+    return false;
+
+  MachineBasicBlock &MBB = *MI.getParent();
+  const DebugLoc &DL = MI.getDebugLoc();
+  for (unsigned I = 0; I != 2; ++I) {
+    if (MRI->getType(Srcs[I]).getSizeInBits() == 64)
+      continue;
+
+    unsigned SubReg = TRI.getSubRegFromChannel(Lanes[I].PairIdx, 2);
+    const TargetRegisterClass *SrcRC =
+        TRI.getConstrainedRegClassForReg(Srcs[I], *MRI);
+    SrcRC = TRI.getSubClassWithSubReg(SrcRC, SubReg);
+    if (!SrcRC || !RBI.constrainGenericRegister(Srcs[I], *SrcRC, *MRI))
+      return false;
+
+    Register Pair = MRI->createVirtualRegister(&AMDGPU::VReg_64RegClass);
+    BuildMI(MBB, MI, DL, TII.get(TargetOpcode::COPY), Pair)
+        .addReg(Srcs[I], {}, SubReg);
+    Srcs[I] = Pair;
+  }
+
+  auto Mov = BuildMI(MBB, MI, DL, TII.get(AMDGPU::V_PK_MOV_B32), Dst)
+                 .addImm(AMDGPU::getPkMovB32SrcMods(Lanes[0]))
+                 .addReg(Srcs[0])
+                 .addImm(AMDGPU::getPkMovB32SrcMods(Lanes[1]))
+                 .addReg(Srcs[1])
+                 .addImm(0)  // clamp
+                 .addImm(0)  // op_sel
+                 .addImm(0)  // op_sel_hi
+                 .addImm(0)  // neg_lo
+                 .addImm(0); // neg_hi
+  constrainSelectedInstRegOperands(*Mov, TII, TRI, RBI);
+  MI.eraseFromParent();
+  return true;
+}
+
 bool AMDGPUInstructionSelector::selectG_BUILD_VECTOR(MachineInstr &MI) const {
   assert(MI.getOpcode() == AMDGPU::G_BUILD_VECTOR_TRUNC ||
          MI.getOpcode() == AMDGPU::G_BUILD_VECTOR);
@@ -923,6 +996,8 @@ bool AMDGPUInstructionSelector::selectG_BUILD_VECTOR(MachineInstr &MI) const {
 
   // BUILD_VECTOR with >=32 bits source is handled by MERGE_VALUE.
   if (MI.getOpcode() == AMDGPU::G_BUILD_VECTOR && SrcSize >= 32) {
+    if (selectBuildVectorToPkMov(MI))
+      return true;
     return selectG_MERGE_VALUES(MI);
   }
 

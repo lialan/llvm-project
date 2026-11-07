@@ -14,6 +14,7 @@
 #include "AMDGPUISelDAGToDAG.h"
 #include "AMDGPU.h"
 #include "AMDGPUInstrInfo.h"
+#include "AMDGPUShuffleUtils.h"
 #include "AMDGPUSubtarget.h"
 #include "MCTargetDesc/R600MCTargetDesc.h"
 #include "R600RegisterInfo.h"
@@ -646,6 +647,33 @@ void AMDGPUDAGToDAGISel::SelectVectorShuffle(SDNode *N) {
   assert(Src0.getValueType().getVectorNumElements() == 2 && Mask.size() == 2 &&
          Mask[0] < 4 && Mask[1] < 4);
 
+  AMDGPU::ShufflePairLane Lane0 = AMDGPU::getShufflePairLane(Mask[0], 2);
+  AMDGPU::ShufflePairLane Lane1 = AMDGPU::getShufflePairLane(Mask[1], 2);
+
+  // Use V_PK_MOV_B32 to blend registers that subregister copies cannot. The
+  // SGPR case needs to lower to copies.
+  //
+  // TODO: Maybe we should fold this out earlier
+  if (N->isDivergent() && AMDGPU::isOddToEvenPairBlend(Lane0, Lane1)) {
+    // The low element of the result always comes from src0.
+    // The high element of the result always comes from src1.
+    SDValue Src0OpSelVal = CurDAG->getTargetConstant(
+        AMDGPU::getPkMovB32SrcMods(Lane0), DL, MVT::i32);
+    SDValue Src1OpSelVal = CurDAG->getTargetConstant(
+        AMDGPU::getPkMovB32SrcMods(Lane1), DL, MVT::i32);
+    SDValue ZeroMods = CurDAG->getTargetConstant(0, DL, MVT::i32);
+
+    CurDAG->SelectNodeTo(N, AMDGPU::V_PK_MOV_B32, N->getVTList(),
+                         {Src0OpSelVal, SVN->getOperand(Lane0.Src),
+                          Src1OpSelVal, SVN->getOperand(Lane1.Src),
+                          ZeroMods,   // clamp
+                          ZeroMods,   // op_sel
+                          ZeroMods,   // op_sel_hi
+                          ZeroMods,   // neg_lo
+                          ZeroMods}); // neg_hi
+    return;
+  }
+
   SDValue VSrc0 = Mask[0] < 2 ? Src0 : Src1;
   SDValue VSrc1 = Mask[1] < 2 ? Src0 : Src1;
   unsigned Src0SubReg = Mask[0] & 1 ? AMDGPU::sub1 : AMDGPU::sub0;
@@ -665,43 +693,7 @@ void AMDGPUDAGToDAGISel::SelectVectorShuffle(SDNode *N) {
     VSrc1 = SDValue(ImpDef, 0);
   }
 
-  // SGPR case needs to lower to copies.
-  //
-  // Also use subregister extract when we can directly blend the registers with
-  // a simple subregister copy.
-  //
-  // TODO: Maybe we should fold this out earlier
-  if (N->isDivergent() && Src0SubReg == AMDGPU::sub1 &&
-      Src1SubReg == AMDGPU::sub0) {
-    // The low element of the result always comes from src0.
-    // The high element of the result always comes from src1.
-    // op_sel selects the high half of src0.
-    // op_sel_hi selects the high half of src1.
-
-    unsigned Src0OpSel =
-        Src0SubReg == AMDGPU::sub1 ? SISrcMods::OP_SEL_0 : SISrcMods::NONE;
-    unsigned Src1OpSel =
-        Src1SubReg == AMDGPU::sub1 ? SISrcMods::OP_SEL_0 : SISrcMods::NONE;
-
-    // Enable op_sel_hi to avoid printing it. This should have no effect on the
-    // result.
-    Src0OpSel |= SISrcMods::OP_SEL_1;
-    Src1OpSel |= SISrcMods::OP_SEL_1;
-
-    SDValue Src0OpSelVal = CurDAG->getTargetConstant(Src0OpSel, DL, MVT::i32);
-    SDValue Src1OpSelVal = CurDAG->getTargetConstant(Src1OpSel, DL, MVT::i32);
-    SDValue ZeroMods = CurDAG->getTargetConstant(0, DL, MVT::i32);
-
-    CurDAG->SelectNodeTo(N, AMDGPU::V_PK_MOV_B32, N->getVTList(),
-                         {Src0OpSelVal, VSrc0, Src1OpSelVal, VSrc1,
-                          ZeroMods,   // clamp
-                          ZeroMods,   // op_sel
-                          ZeroMods,   // op_sel_hi
-                          ZeroMods,   // neg_lo
-                          ZeroMods}); // neg_hi
-    return;
-  }
-
+  // Otherwise use subregister copies.
   SDValue ResultElt0 =
       CurDAG->getTargetExtractSubreg(Src0SubReg, DL, EltVT, VSrc0);
   SDValue ResultElt1 =

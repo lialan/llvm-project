@@ -1102,12 +1102,12 @@ private:
                                            const APInt &DemandedBits,
                                            unsigned Depth) const;
 
-  /// Walk a use operand, or the result of MI when IsRoot is true.
+  /// Walk operand \p OpNo of \p MI. A use operand is simplified for that use
+  /// only; the def operand simplifies MI itself as a combine root.
   /// \p DoRewrite false probes without changing MIR.
   bool simplifyDemandedBitsImpl(MachineInstr &MI, unsigned OpNo,
                                 const APInt &DemandedBits, KnownBits &Known,
-                                unsigned Depth, bool DoRewrite,
-                                bool IsRoot = false) const;
+                                unsigned Depth, bool DoRewrite) const;
 
   /// Checks for legality of an indexed variant of \p LdSt.
   bool isIndexedLoadStoreLegal(GLoadStore &LdSt) const;

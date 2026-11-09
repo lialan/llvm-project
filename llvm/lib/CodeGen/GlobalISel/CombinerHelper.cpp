@@ -8761,12 +8761,11 @@ Register CombinerHelper::simplifyMultipleUseDemandedBits(
 bool CombinerHelper::simplifyDemandedBitsImpl(MachineInstr &MI, unsigned OpNo,
                                               const APInt &DemandedBits,
                                               KnownBits &Known, unsigned Depth,
-                                              bool DoRewrite,
-                                              bool IsRoot) const {
+                                              bool DoRewrite) const {
   Known = KnownBits(DemandedBits.getBitWidth());
-  assert(MI.getOperand(OpNo).isReg() &&
-         (IsRoot || !MI.getOperand(OpNo).isDef()) &&
-         "Expected a register use or root definition");
+  assert(MI.getOperand(OpNo).isReg() && "Expected a register operand");
+  // Walking MI's own result makes MI the root, whose uses are all rewritten.
+  const bool IsRoot = MI.getOperand(OpNo).isDef();
   assert((!IsRoot || OpNo == 0) && "Expected the root result");
   Register OpReg = MI.getOperand(OpNo).getReg();
   assert(OpReg.isVirtual() && "Expected a virtual register");
@@ -8807,6 +8806,8 @@ bool CombinerHelper::simplifyDemandedBitsImpl(MachineInstr &MI, unsigned OpNo,
   };
 
   if (DemandedBits.isZero()) {
+    // The rewrite below replaces only a use operand, never a root's def.
+    assert(!IsRoot && "Expected a demanded root");
     if (DefMI->getOpcode() == TargetOpcode::G_IMPLICIT_DEF)
       return false;
     if (!DoRewrite)
@@ -9267,14 +9268,12 @@ bool CombinerHelper::matchSimplifyDemandedBits(MachineInstr &MI,
   case TargetOpcode::G_SELECT: {
     KnownBits Known(RootDemand.getBitWidth());
     if (!simplifyDemandedBitsImpl(MI, /*OpNo=*/0, RootDemand, Known,
-                                  /*Depth=*/0, /*DoRewrite=*/false,
-                                  /*IsRoot=*/true))
+                                  /*Depth=*/0, /*DoRewrite=*/false))
       return false;
     MatchInfo = [this, &MI, RootDemand](MachineIRBuilder &) {
       KnownBits Known(RootDemand.getBitWidth());
       simplifyDemandedBitsImpl(MI, /*OpNo=*/0, RootDemand, Known,
-                               /*Depth=*/0, /*DoRewrite=*/true,
-                               /*IsRoot=*/true);
+                               /*Depth=*/0, /*DoRewrite=*/true);
     };
     return true;
   }

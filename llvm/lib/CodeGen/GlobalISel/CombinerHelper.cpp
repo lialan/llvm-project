@@ -8682,18 +8682,18 @@ Register CombinerHelper::simplifyMultipleUseDemandedBits(
   if (Depth >= MaxAnalysisRecursionDepth)
     return Register();
 
-  [[maybe_unused]] LLT Ty = MRI.getType(R);
+  LLT Ty = MRI.getType(R);
   assert(Ty.isValid() && "Expected a typed register");
   assert(DemandedBits.getBitWidth() == Ty.getScalarSizeInBits() &&
          "DemandedBits width must match the register scalar type");
 
   MachineInstr *DefMI = MRI.getVRegDef(R);
   assert(DefMI && "Expected a definition in generic SSA MIR");
-  if (!isa<GLogicalBinOp>(DefMI))
+  auto *Logic = dyn_cast<GLogicalBinOp>(DefMI);
+  if (!Logic)
     return Register();
 
-  unsigned Opcode = DefMI->getOpcode();
-  auto *Logic = cast<GLogicalBinOp>(DefMI);
+  unsigned Opcode = Logic->getOpcode();
   Register LHS = Logic->getLHSReg();
   Register RHS = Logic->getRHSReg();
   assert(MRI.getType(LHS) == Ty && MRI.getType(RHS) == Ty &&
@@ -8720,6 +8720,8 @@ Register CombinerHelper::simplifyMultipleUseDemandedBits(
     return Register();
   };
 
+  // A constant AND/OR mask can also expose a deeper bypass. XOR has no such
+  // shortcut because its constant flips bits instead of fixing them.
   if (Opcode != TargetOpcode::G_XOR) {
     if (Register Repl = LookThrough(LHS, RHS))
       return Repl;
@@ -8729,7 +8731,8 @@ Register CombinerHelper::simplifyMultipleUseDemandedBits(
 
   APInt DemandedElts =
       Ty.isFixedVector() ? APInt::getAllOnes(Ty.getNumElements()) : APInt(1, 1);
-  // SelectionDAG recognizes scalar constants before its KnownBits depth limit.
+  // Value tracking gives up at the depth limit even for constants, whereas
+  // SelectionDAG checks for constants first; match the latter.
   auto GetKnownBits = [&](Register Reg) {
     if (auto C = getConstantOrConstantSplatVector(Reg))
       return KnownBits::makeConstant(*C);
@@ -8737,25 +8740,29 @@ Register CombinerHelper::simplifyMultipleUseDemandedBits(
   };
   KnownBits LHSKnown = GetKnownBits(LHS);
   KnownBits RHSKnown = GetKnownBits(RHS);
-  if (Opcode == TargetOpcode::G_XOR) {
-    if (DemandedBits.isSubsetOf(RHSKnown.Zero))
-      return LHS;
-    if (DemandedBits.isSubsetOf(LHSKnown.Zero))
-      return RHS;
-    return Register();
-  }
-  if (Opcode == TargetOpcode::G_AND) {
+  // Return an operand that agrees with R on every demanded bit.
+  switch (Opcode) {
+  case TargetOpcode::G_AND:
     if (DemandedBits.isSubsetOf(LHSKnown.Zero | RHSKnown.One))
       return LHS;
     if (DemandedBits.isSubsetOf(RHSKnown.Zero | LHSKnown.One))
       return RHS;
     return Register();
+  case TargetOpcode::G_OR:
+    if (DemandedBits.isSubsetOf(LHSKnown.One | RHSKnown.Zero))
+      return LHS;
+    if (DemandedBits.isSubsetOf(RHSKnown.One | LHSKnown.Zero))
+      return RHS;
+    return Register();
+  case TargetOpcode::G_XOR:
+    if (DemandedBits.isSubsetOf(RHSKnown.Zero))
+      return LHS;
+    if (DemandedBits.isSubsetOf(LHSKnown.Zero))
+      return RHS;
+    return Register();
+  default:
+    llvm_unreachable("Expected a logical binary op");
   }
-  if (DemandedBits.isSubsetOf(LHSKnown.One | RHSKnown.Zero))
-    return LHS;
-  if (DemandedBits.isSubsetOf(RHSKnown.One | LHSKnown.Zero))
-    return RHS;
-  return Register();
 }
 
 bool CombinerHelper::simplifyDemandedBitsImpl(MachineInstr &MI, unsigned OpNo,
@@ -8829,10 +8836,10 @@ bool CombinerHelper::simplifyDemandedBitsImpl(MachineInstr &MI, unsigned OpNo,
     return false;
 
   unsigned BW = DemandedBits.getBitWidth();
+  APInt DemandedElts = OpTy.isFixedVector()
+                           ? APInt::getAllOnes(OpTy.getNumElements())
+                           : APInt(1, 1);
   auto GiveUp = [&]() {
-    APInt DemandedElts = OpTy.isFixedVector()
-                             ? APInt::getAllOnes(OpTy.getNumElements())
-                             : APInt(1, 1);
     Known = VT->getKnownBits(OpReg, DemandedElts, Depth);
     return false;
   };
@@ -8902,9 +8909,6 @@ bool CombinerHelper::simplifyDemandedBitsImpl(MachineInstr &MI, unsigned OpNo,
         (isPreLegalize() ||
          TLI.isTypeDesirableForOp(
              ISD::SRL, getApproximateEVTForLLT(OpTy, getContext())))) {
-      APInt DemandedElts = OpTy.isFixedVector()
-                               ? APInt::getAllOnes(OpTy.getNumElements())
-                               : APInt(1, 1);
       std::optional<unsigned> Amt;
       if (std::optional<ConstantRange> AmtRange = VT->getValidShiftAmountRange(
               Shift->getOperand(2).getReg(), DemandedElts, Depth + 2))
@@ -9052,12 +9056,13 @@ bool CombinerHelper::simplifyDemandedBitsImpl(MachineInstr &MI, unsigned OpNo,
     if (!Changed)
       Changed = simplifyDemandedBitsImpl(*DefMI, /*OpNo=*/2, Demanded,
                                          TrueKnown, Depth + 1, DoRewrite);
+    Known = TrueKnown.intersectWith(FalseKnown);
     if (Changed) {
       DropPoisonFlags();
       InvalidateDebugUses(Demanded);
+      return true;
     }
-    Known = TrueKnown.intersectWith(FalseKnown);
-    return Changed || FoldKnown();
+    return FoldKnown();
   }
   case TargetOpcode::G_AND:
   case TargetOpcode::G_OR: {
@@ -9114,12 +9119,7 @@ bool CombinerHelper::simplifyDemandedBitsImpl(MachineInstr &MI, unsigned OpNo,
               ? getDemandedBitsForLogicalOp(Opcode, Demanded, LHSKnown)
               : getDemandedBitsForLogicalOp(
                     Opcode, Demanded,
-                    VT->getKnownBits(
-                        LHS,
-                        OpTy.isFixedVector()
-                            ? APInt::getAllOnes(OpTy.getNumElements())
-                            : APInt(1, 1),
-                        Depth + 1));
+                    VT->getKnownBits(LHS, DemandedElts, Depth + 1));
       if (RHSDemand != Demanded) {
         // Keep full-demand RHS facts if the reduced-demand retry fails.
         KnownBits RetryKnown(BW);
@@ -9271,9 +9271,9 @@ bool CombinerHelper::matchSimplifyDemandedBits(MachineInstr &MI,
                                   /*Depth=*/0, /*DoRewrite=*/false))
       return false;
     MatchInfo = [this, &MI, RootDemand](MachineIRBuilder &) {
-      KnownBits Known(RootDemand.getBitWidth());
-      simplifyDemandedBitsImpl(MI, /*OpNo=*/0, RootDemand, Known,
-                               /*Depth=*/0, /*DoRewrite=*/true);
+      KnownBits K(RootDemand.getBitWidth());
+      simplifyDemandedBitsImpl(MI, /*OpNo=*/0, RootDemand, K, /*Depth=*/0,
+                               /*DoRewrite=*/true);
     };
     return true;
   }

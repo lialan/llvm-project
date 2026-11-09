@@ -58,7 +58,7 @@ body: |
     %mask:_(i64) = G_CONSTANT i64 -72057594037927681
     %v:_(i64) = G_XOR %a, %c
     %res:_(i64) = G_AND %v, %mask
-    $vgpr0_vgpr1 = COPY %res
+    $vgpr0_vgpr1 = COPY %res(i64)
 ...
 
 ---
@@ -83,5 +83,5 @@ body: |
     %amt:_(i32) = G_CONSTANT i32 8
     %a:_(i64) = G_LSHR %x, %amt(i32)
     %res:_(i64) = G_XOR %a, %c
-    $vgpr0_vgpr1 = COPY %res
+    $vgpr0_vgpr1 = COPY %res(i64)
 ...

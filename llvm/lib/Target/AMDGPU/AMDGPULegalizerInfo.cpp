@@ -5344,6 +5344,26 @@ void AMDGPULegalizerInfo::legalizeUnsignedDIV_REM32Impl(MachineIRBuilder &B,
     B.buildSelect(DstRemReg, Cond, B.buildSub(I32, R, Y), R);
 }
 
+// Build an f32 multiply-add for an expansion whose operands and results are
+// never denormal. Like SelectionDAG, prefer V_MAD_F32 even when the function
+// does not flush f32 denormals, falling back to FMA on targets without MAD.
+static MachineInstrBuilder buildMadF32NoDenorm(MachineIRBuilder &B,
+                                               Register Src0, Register Src1,
+                                               Register Src2,
+                                               uint16_t Flags = 0) {
+  MachineFunction &MF = B.getMF();
+  if (!MF.getSubtarget<GCNSubtarget>().hasMadMacF32Insts())
+    return B.buildFMA(F32, Src0, Src1, Src2, Flags);
+  if (MF.getInfo<SIMachineFunctionInfo>()->getMode().FP32Denormals ==
+      DenormalMode::getPreserveSign())
+    return B.buildFMAD(F32, Src0, Src1, Src2, Flags);
+  return B.buildIntrinsic(Intrinsic::amdgcn_fmad_ftz, {F32})
+      .addUse(Src0)
+      .addUse(Src1)
+      .addUse(Src2)
+      .setMIFlags(Flags);
+}
+
 // Build integer reciprocal sequence around V_RCP_IFLAG_F32
 //
 // Return lo, hi of result
@@ -5365,9 +5385,10 @@ static std::pair<Register, Register> emitReciprocalU64(MachineIRBuilder &B,
   auto CvtLo = B.buildUITOFP(F32, Unmerge.getReg(0));
   auto CvtHi = B.buildUITOFP(F32, Unmerge.getReg(1));
 
-  auto Mad = B.buildFMAD(
-      F32, CvtHi, // 2**32
-      B.buildFConstant(F32, llvm::bit_cast<float>(0x4f800000)), CvtLo);
+  auto Mad = buildMadF32NoDenorm(
+      B, CvtHi.getReg(0),
+      B.buildFConstant(F32, llvm::bit_cast<float>(0x4f800000)).getReg(0),
+      CvtLo.getReg(0));
 
   auto Rcp = B.buildInstr(AMDGPU::G_AMDGPU_RCP_IFLAG, {F32}, {Mad});
   auto Mul1 = B.buildFMul(
@@ -5379,9 +5400,10 @@ static std::pair<Register, Register> emitReciprocalU64(MachineIRBuilder &B,
   auto Trunc = B.buildIntrinsicTrunc(F32, Mul2);
 
   // -(2**32)
-  auto Mad2 = B.buildFMAD(
-      F32, Trunc, B.buildFConstant(F32, llvm::bit_cast<float>(0xcf800000)),
-      Mul1);
+  auto Mad2 = buildMadF32NoDenorm(
+      B, Trunc.getReg(0),
+      B.buildFConstant(F32, llvm::bit_cast<float>(0xcf800000)).getReg(0),
+      Mul1.getReg(0));
 
   auto ResultLo = B.buildFPTOUI(I32, Mad2);
   auto ResultHi = B.buildFPTOUI(I32, Trunc);
@@ -5754,16 +5776,13 @@ bool AMDGPULegalizerInfo::legalizeFDIV16(MachineInstr &MI,
                  .addUse(RHSExt.getReg(0))
                  .setMIFlags(Flags);
   auto Quot = B.buildFMul(F32, LHSExt, Rcp, Flags);
-  MachineInstrBuilder Err;
-  if (ST.hasMadMacF32Insts()) {
-    Err = B.buildFMAD(F32, NegRHSExt, Quot, LHSExt, Flags);
-    Quot = B.buildFMAD(F32, Err, Rcp, Quot, Flags);
-    Err = B.buildFMAD(F32, NegRHSExt, Quot, LHSExt, Flags);
-  } else {
-    Err = B.buildFMA(F32, NegRHSExt, Quot, LHSExt, Flags);
-    Quot = B.buildFMA(F32, Err, Rcp, Quot, Flags);
-    Err = B.buildFMA(F32, NegRHSExt, Quot, LHSExt, Flags);
-  }
+  // The f16-derived operands and error terms are never f32 denormals.
+  auto Err = buildMadF32NoDenorm(B, NegRHSExt.getReg(0), Quot.getReg(0),
+                                 LHSExt.getReg(0), Flags);
+  Quot = buildMadF32NoDenorm(B, Err.getReg(0), Rcp.getReg(0), Quot.getReg(0),
+                             Flags);
+  Err = buildMadF32NoDenorm(B, NegRHSExt.getReg(0), Quot.getReg(0),
+                            LHSExt.getReg(0), Flags);
   auto Tmp = B.buildFMul(F32, Err, Rcp, Flags);
   auto TmpInt = B.buildBitcast(I32, Tmp);
   auto MaskedInt = B.buildAnd(I32, TmpInt, B.buildConstant(I32, 0xff800000));

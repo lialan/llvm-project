@@ -80,6 +80,7 @@
 #include "llvm/CodeGen/FuncletLayout.h"
 #include "llvm/CodeGen/GCMetadata.h"
 #include "llvm/CodeGen/GlobalISel/CSEInfo.h"
+#include "llvm/CodeGen/GlobalISel/GIEGraphCombiner.h"
 #include "llvm/CodeGen/GlobalISel/IRTranslator.h"
 #include "llvm/CodeGen/GlobalISel/InstructionSelect.h"
 #include "llvm/CodeGen/GlobalISel/Legalizer.h"
@@ -426,6 +427,13 @@ static bool isLTOPreLink(ThinOrFullLTOPhase Phase) {
          Phase == ThinOrFullLTOPhase::ThinLTOPreLink;
 }
 } // anonymous namespace
+
+// Experimental: run the e-graph combiner after the pre-legalizer combiner.
+// The operating mode (shadow/rewrite) is controlled by -gisel-egraph-mode.
+static cl::opt<bool>
+    EnableGISelEGraph("amdgpu-gisel-egraph", cl::Hidden, cl::init(false),
+                      cl::desc("Run the experimental GlobalISel e-graph "
+                               "combiner after the pre-legalizer combiner"));
 
 static cl::opt<bool, true> EnableObjectLinking(
     "amdgpu-enable-object-linking",
@@ -1604,6 +1612,8 @@ bool GCNPassConfig::addIRTranslator() {
 void GCNPassConfig::addPreLegalizeMachineIR() {
   bool IsOptLevelNone = getOptLevel() == CodeGenOptLevel::None;
   addPass(createAMDGPUPreLegalizeCombinerLegacyPass(IsOptLevelNone));
+  if (EnableGISelEGraph && !IsOptLevelNone)
+    addPass(new GIEGraphCombiner());
   addPass(new LocalizerLegacy());
 }
 

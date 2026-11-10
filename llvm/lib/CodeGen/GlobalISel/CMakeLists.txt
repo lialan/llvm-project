@@ -4,6 +4,9 @@ add_llvm_component_library(LLVMGlobalISel
   CSEMIRBuilder.cpp
   CallLowering.cpp
   GlobalISel.cpp
+  GIEGraph.cpp
+  GIEGraphCombiner.cpp
+  GIEGraphRules.cpp
   Combiner.cpp
   CombinerHelper.cpp
   CombinerHelperCasts.cpp

@@ -158,6 +158,7 @@ LLVM_ABI void initializeLazyMachineBlockFrequencyInfoPassPass(PassRegistry &);
 LLVM_ABI void initializeLazyValueInfoWrapperPassPass(PassRegistry &);
 LLVM_ABI void initializeLegacyLICMPassPass(PassRegistry &);
 LLVM_ABI void initializeLegalizerLegacyPass(PassRegistry &);
+LLVM_ABI void initializeGIEGraphCombinerPass(PassRegistry &);
 LLVM_ABI void initializeGISelCSEAnalysisWrapperPassPass(PassRegistry &);
 LLVM_ABI void initializeGISelValueTrackingAnalysisLegacyPass(PassRegistry &);
 LLVM_ABI void initializeLiveDebugValuesLegacyPass(PassRegistry &);

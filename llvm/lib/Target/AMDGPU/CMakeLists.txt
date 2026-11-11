@@ -22,7 +22,8 @@ llvm_tablegen(AMDGPUGenSubtargetInfo.inc -gen-subtarget)
 set(LLVM_TARGET_DEFINITIONS AMDGPUGISel.td)
 llvm_tablegen(AMDGPUGenGlobalISel.inc -gen-global-isel -gisel-extended-llt)
 llvm_tablegen(AMDGPUGenPreLegalizeGICombiner.inc -gen-global-isel-combiner
-              -combiners="AMDGPUPreLegalizerCombiner" -gisel-extended-llt)
+              -combiners="AMDGPUPreLegalizerCombiner" -gisel-extended-llt
+              DEPENDS ${LLVM_MAIN_INCLUDE_DIR}/llvm/Target/GlobalISel/GISynthCombines.td)
 llvm_tablegen(AMDGPUGenPostLegalizeGICombiner.inc -gen-global-isel-combiner
               -combiners="AMDGPUPostLegalizerCombiner" -gisel-extended-llt)
 llvm_tablegen(AMDGPUGenRegBankGICombiner.inc -gen-global-isel-combiner

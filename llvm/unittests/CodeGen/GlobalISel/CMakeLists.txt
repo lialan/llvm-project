@@ -25,6 +25,7 @@ add_llvm_unittest(GlobalISelTests
   MachineIRBuilderTest.cpp
   GISelMITest.cpp
   GIEGraphTest.cpp
+  GISynthPredicatesTest.cpp
   PatternMatchTest.cpp
   KnownBitsTest.cpp
   KnownFPClassTest.cpp

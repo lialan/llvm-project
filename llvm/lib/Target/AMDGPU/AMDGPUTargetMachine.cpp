@@ -81,6 +81,7 @@
 #include "llvm/CodeGen/GCMetadata.h"
 #include "llvm/CodeGen/GlobalISel/CSEInfo.h"
 #include "llvm/CodeGen/GlobalISel/GIEGraphCombiner.h"
+#include "llvm/CodeGen/GlobalISel/GISynthCorpusExtractor.h"
 #include "llvm/CodeGen/GlobalISel/IRTranslator.h"
 #include "llvm/CodeGen/GlobalISel/InstructionSelect.h"
 #include "llvm/CodeGen/GlobalISel/Legalizer.h"
@@ -434,6 +435,14 @@ static cl::opt<bool>
     EnableGISelEGraph("amdgpu-gisel-egraph", cl::Hidden, cl::init(false),
                       cl::desc("Run the experimental GlobalISel e-graph "
                                "combiner after the pre-legalizer combiner"));
+
+// Offline rule synthesis: dump the gMIR left after the pre-legalizer combiner
+// (see llvm/utils/gisel-rule-synth). The output file is set with
+// -gisel-synth-corpus-out.
+static cl::opt<bool> EnableGISelSynthCorpus(
+    "amdgpu-gisel-synth-corpus", cl::Hidden, cl::init(false),
+    cl::desc("Write the GlobalISel rule synthesizer corpus after the "
+             "pre-legalizer combiner"));
 
 static cl::opt<bool, true> EnableObjectLinking(
     "amdgpu-enable-object-linking",
@@ -1614,6 +1623,8 @@ void GCNPassConfig::addPreLegalizeMachineIR() {
   addPass(createAMDGPUPreLegalizeCombinerLegacyPass(IsOptLevelNone));
   if (EnableGISelEGraph && !IsOptLevelNone)
     addPass(new GIEGraphCombiner());
+  if (EnableGISelSynthCorpus)
+    addPass(new GISynthCorpusExtractor());
   addPass(new LocalizerLegacy());
 }
 

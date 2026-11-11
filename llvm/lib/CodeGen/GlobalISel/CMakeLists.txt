@@ -6,6 +6,7 @@ add_llvm_component_library(LLVMGlobalISel
   GlobalISel.cpp
   GIEGraph.cpp
   GIEGraphCombiner.cpp
+  GISynthCorpusExtractor.cpp
   GIEGraphRules.cpp
   Combiner.cpp
   CombinerHelper.cpp

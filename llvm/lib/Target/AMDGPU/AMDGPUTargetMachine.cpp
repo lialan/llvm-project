@@ -429,12 +429,13 @@ static bool isLTOPreLink(ThinOrFullLTOPhase Phase) {
 }
 } // anonymous namespace
 
-// Experimental: run the e-graph combiner after the pre-legalizer combiner.
+// Experimental: run the e-graph combiner after the pre-legalizer combiner and
+// after the post-legalizer combiner (see -gisel-egraph-stages).
 // The operating mode (shadow/rewrite) is controlled by -gisel-egraph-mode.
 static cl::opt<bool>
     EnableGISelEGraph("amdgpu-gisel-egraph", cl::Hidden, cl::init(false),
                       cl::desc("Run the experimental GlobalISel e-graph "
-                               "combiner after the pre-legalizer combiner"));
+                               "combiner before and after the legalizer"));
 
 // Offline rule synthesis: dump the gMIR left after the pre-legalizer combiner
 // (see llvm/utils/gisel-rule-synth). The output file is set with
@@ -1636,6 +1637,10 @@ bool GCNPassConfig::addLegalizeMachineIR() {
 void GCNPassConfig::addPreRegBankSelect() {
   bool IsOptNone = getOptLevel() == CodeGenOptLevel::None;
   addPass(createAMDGPUPostLegalizeCombinerLegacy(IsOptNone));
+  // The second position of the e-graph combiner: on the legal operations
+  // of this target (see -gisel-egraph-stages).
+  if (EnableGISelEGraph && !IsOptNone)
+    addPass(new GIEGraphCombiner());
   addPass(createAMDGPUGlobalISelDivergenceLoweringPass());
 }
 

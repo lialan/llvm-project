@@ -13,7 +13,8 @@ llvm_tablegen(AArch64GenGlobalISel.inc -gen-global-isel -gisel-extended-llt)
 llvm_tablegen(AArch64GenO0PreLegalizeGICombiner.inc -gen-global-isel-combiner
               -combiners="AArch64O0PreLegalizerCombiner")
 llvm_tablegen(AArch64GenPreLegalizeGICombiner.inc -gen-global-isel-combiner
-              -combiners="AArch64PreLegalizerCombiner")
+              -combiners="AArch64PreLegalizerCombiner"
+              DEPENDS ${LLVM_MAIN_INCLUDE_DIR}/llvm/Target/GlobalISel/GISynthCombines.td)
 llvm_tablegen(AArch64GenPostLegalizeGICombiner.inc -gen-global-isel-combiner
               -combiners="AArch64PostLegalizerCombiner")
 llvm_tablegen(AArch64GenPostLegalizeGILowering.inc -gen-global-isel-combiner

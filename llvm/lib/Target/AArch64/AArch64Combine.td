@@ -10,6 +10,7 @@
 //===----------------------------------------------------------------------===//
 
 include "llvm/Target/GlobalISel/Combine.td"
+include "llvm/Target/GlobalISel/GISynthCombines.td"
 
 def icmp_redundant_trunc : GICombineRule<
   (defs root:$root, register_matchinfo:$matchinfo),
@@ -109,7 +110,10 @@ def AArch64PreLegalizerCombiner: GICombiner<
                                       simplify_uaddo,
                                       memcpy_family_combines,
                                       emit_bzero,
-                                      deinterleave_load, interleave_store]> {
+                                      deinterleave_load, interleave_store,
+                                      // Offline-synthesized rules; disabled
+                                      // unless -aarch64-gisel-synth-combines.
+                                      gi_synth_combines_aarch64]> {
   let CombineAllMethodName = "tryCombineAllImpl";
 }
 

@@ -347,7 +347,7 @@ def AMDGPUPreLegalizerCombiner: GICombiner<
    combine_shuffle_vector_to_build_vector, trunc_lshr16_to_unmerge,
    binop_s64_with_s32_mask_combines, combine_or_s64_s32,
    // Offline-synthesized rules; disabled unless -amdgpu-gisel-synth-combines.
-   gi_synth_combines]> {
+   gi_synth_combines_amdgpu]> {
   let CombineAllMethodName = "tryCombineAllImpl";
 }
 

@@ -24,6 +24,20 @@ Other components include:
 the [libc++ C++ standard library](https://libcxx.llvm.org),
 the [LLD linker](https://lld.llvm.org), and more.
 
+## Target-Aware Superoptimization and Rule Synthesis for LLVM GlobalISel
+
+This fork contains experimental infrastructure for finding cheaper, valid
+Generic MIR expressions and turning them into reusable GlobalISel combine
+rules. GIEGraph explores rewrites with bounded equality saturation;
+GIRuleSynthesizer discovers and proves rules offline from a compiler test
+corpus, then generates TableGen rules and C++ guards for the existing
+combiners. Target legality and measured changes in final instruction count
+guide the search and per-target rule selection.
+
+See the [GIRuleSynthesizer README](llvm/utils/gisel-rule-synth/README.md) for
+the project overview, current capabilities, limitations and usage. The
+generated combines for AMDGPU and AArch64 are opt-in.
+
 ## Getting the Source Code and Building LLVM
 
 Consult the

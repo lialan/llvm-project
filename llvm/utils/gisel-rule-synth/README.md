@@ -5,6 +5,67 @@ combine rules (GIRuleSynthesizer). Normal compilation only runs the
 generated `GICombineRule`s through the existing combiner. No solver, search
 engine or e-graph runs inside LLVM.
 
+## Target-Aware Superoptimization and Rule Synthesis for LLVM GlobalISel
+
+The project explores offline superoptimization of Generic MIR and the
+synthesis of reusable GlobalISel combine rules. Here, superoptimization
+means searching a bounded space of modeled expressions for a cheaper,
+valid replacement. It does not imply exhaustive search or a globally
+optimal result.
+
+- **GIEGraph** represents Generic MIR expressions in an e-graph and applies
+  registered rewrites under bounded equality saturation. It keeps
+  equivalence separate from one-way refinement, so an undef/poison
+  refinement is not treated as an equality. Its extractor uses operation
+  costs and target legality to choose a replacement. The experimental
+  [GIEGraphCombiner](../../docs/GlobalISel/GIEGraphCombiner-Design.md) can
+  export before/after DAGs as candidates for the offline synthesizer.
+- **GIRuleSynthesizer** also discovers replacements independently by
+  enumerating typed expressions from an operator registry. Samples filter
+  candidates; SMT checks refinement, and CEGIS synthesizes preconditions
+  that generalize concrete known-bit facts. Rules are proved for their
+  recorded width schedules and guards. An e-graph candidate goes through
+  the same proof pipeline; it is not trusted because a rewrite fired.
+  The `semantics-only` mode uses enumerative discovery alone, while
+  `hybrid` also uses e-graph candidates and rule composition.
+- **Rule generation** turns the proved library and target profiles into
+  TableGen `GICombineRule` records, C++ guards and replacement builders,
+  and per-target `GICombineGroup`s. With the generated combines enabled,
+  compilation applies those rules through the existing pre-legalizer
+  combiners; it does not repeat the offline search or invoke a solver.
+  The separate experimental e-graph pass remains opt-in.
+- **Corpus-driven discovery** starts with Generic MIR extracted from
+  compiler test inputs, including known bits and type information, rather
+  than a supplied list of desired rewrites. The `mine` workflow supports
+  direct and `opt -O2` inputs, discovery and validation manifests, and a
+  held-out evaluation after the rule set is frozen. It records search
+  budgets, proof outcomes, coverage and measured effects. A discovered
+  candidate is not by itself evidence of a code-generation improvement.
+
+### What is target-aware today
+
+GIEGraph's cost model combines configurable operation weights with
+`LegalizerInfo` checks, with stricter requirements for new instructions
+after legalization. The synthesizer can use an extracted legality table
+to prioritize target-supported operators in its `auto` grammar. This
+guides search; it is not a proof that every candidate lowers profitably.
+
+AMDGPU and AArch64 profiles select rules using corpus coverage, probes
+against the existing combiner, and measurements of final static
+instruction counts. The complete run also checks compilation failures,
+machine-verifier errors, changed SelectionDAG fallbacks and instruction
+count regressions. These are code-generation measurements, not hardware
+latency or throughput measurements; the current costs are not a complete
+microarchitectural performance model.
+
+The operator registry includes models for a limited set of AMDGPU
+intrinsics, with restrictions on the types and intrinsics a rule can
+create. It does not provide arbitrary target ISA instruction synthesis.
+Broader target-operator coverage and richer target cost models remain
+extension directions. Search and proofs are limited to the implemented
+semantic models, supported types, proved width schedules and configured
+budgets; an UNKNOWN solver result is not accepted as a proof.
+
 ## Requirements
 
 - An LLVM build with the targets to generate for (AMDGPU, AArch64), for

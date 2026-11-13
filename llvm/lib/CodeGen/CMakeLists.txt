@@ -46,6 +46,7 @@ add_llvm_component_library(LLVMCodeGen
   AssignmentTrackingAnalysis.cpp
   AtomicExpandPass.cpp
   BasicTargetTransformInfo.cpp
+  BitFieldView.cpp
   BranchFolding.cpp
   BranchRelaxation.cpp
   BreakFalseDeps.cpp

@@ -18,11 +18,13 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/FoldingSet.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/ilist.h"
 #include "llvm/ADT/iterator.h"
 #include "llvm/ADT/iterator_range.h"
+#include "llvm/CodeGen/BitFieldView.h"
 #include "llvm/CodeGen/DAGCombine.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -2528,6 +2530,19 @@ public:
   /// element bit-width of the shift node, return the maximum possible value.
   LLVM_ABI std::optional<unsigned>
   getValidMaximumShiftAmount(SDValue V, unsigned Depth = 0) const;
+
+  /// Calls \p Callback for each bit-field view of the scalar integer \p Root
+  /// that looks through at least one node: each view V says that
+  /// Root == V.Ext(V.Src[V.Lo, V.Lo + V.Width)) when Root is not poison.
+  /// \p Path holds the values of the nodes looked through, Root first. The
+  /// walk looks through at most \p MaxDepth nodes: shifts by constants, masks
+  /// (by known bits), truncations, extensions, SIGN_EXTEND_INREG,
+  /// EXTRACT_ELEMENT and BUILD_PAIR. It never looks through FREEZE.
+  LLVM_ABI void forEachBitFieldView(
+      SDValue Root,
+      function_ref<void(const BitFieldView<SDValue> &, ArrayRef<SDValue>)>
+          Callback,
+      unsigned MaxDepth = 8) const;
 
   /// Match a binop + shuffle pyramid that represents a horizontal reduction
   /// over the elements of a vector starting from the EXTRACT_VECTOR_ELT node /p

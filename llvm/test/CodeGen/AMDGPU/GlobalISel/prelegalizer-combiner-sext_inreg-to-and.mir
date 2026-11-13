@@ -39,9 +39,7 @@ body:             |
     ; CHECK-NEXT: {{  $}}
     ; CHECK-NEXT: %ptr:_(p1) = COPY $vgpr0_vgpr1
     ; CHECK-NEXT: %load:_(s32) = G_LOAD %ptr(p1) :: (volatile load (s32), addrspace 1)
-    ; CHECK-NEXT: %mask:_(s32) = G_CONSTANT i32 255
-    ; CHECK-NEXT: %and:_(s32) = G_AND %load, %mask
-    ; CHECK-NEXT: %inreg:_(s32) = G_SEXT_INREG %and, 8
+    ; CHECK-NEXT: %inreg:_(s32) = G_SEXT_INREG %load, 8
     ; CHECK-NEXT: $vgpr0 = COPY %inreg(s32)
     %ptr:_(p1) = COPY $vgpr0_vgpr1
     %load:_(s32) = G_LOAD %ptr :: (volatile load (s32), addrspace 1, align 4)

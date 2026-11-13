@@ -2013,6 +2013,192 @@ bool llvm::isAssertMI(const MachineInstr &MI) {
   }
 }
 
+/// The values that a bit-field view describes or is taken of: scalar
+/// integers. The bits of a vector are lanes, never one integer.
+static bool isBitFieldViewType(LLT Ty) {
+  return Ty.isScalar() && !Ty.isFloat() && Ty.getSizeInBits() > 0;
+}
+
+namespace {
+/// The depth-first search of forEachBitFieldView.
+class BitFieldViewWalker {
+public:
+  using CallbackT =
+      function_ref<void(const BitFieldView<Register> &, ArrayRef<Register>)>;
+
+  BitFieldViewWalker(const MachineRegisterInfo &MRI, GISelValueTracking *VT,
+                     CallbackT Callback, unsigned MaxDepth)
+      : MRI(MRI), VT(VT), Callback(Callback), MaxDepth(MaxDepth) {}
+
+  /// Visits the definition of \p D, whose field \p F is the field of the
+  /// root.
+  void visit(Register D, const BitField &F);
+
+private:
+  /// Reports the field \p F of \p Src and continues the search from it.
+  void step(Register Src, std::optional<BitField> F);
+  std::optional<uint64_t> getConstant(Register R) const {
+    std::optional<ValueAndVReg> C = getIConstantVRegValWithLookThrough(R, MRI);
+    if (!C || C->Value.getActiveBits() > 32)
+      return std::nullopt;
+    return C->Value.getZExtValue();
+  }
+
+  const MachineRegisterInfo &MRI;
+  GISelValueTracking *VT;
+  CallbackT Callback;
+  unsigned MaxDepth;
+  unsigned Visits = 0;
+  SmallVector<Register, 8> Path;
+};
+} // end anonymous namespace
+
+void BitFieldViewWalker::step(Register Src, std::optional<BitField> F) {
+  if (!F || !Src.isVirtual() || !isBitFieldViewType(MRI.getType(Src)))
+    return;
+  Callback(BitFieldView<Register>(*F, Src), Path);
+  visit(Src, *F);
+}
+
+void BitFieldViewWalker::visit(Register D, const BitField &F) {
+  // Each visit may compute known bits, so the search is bounded in depth and
+  // in size; a choice between the operands of a mask doubles it.
+  if (Path.size() >= MaxDepth || Visits >= 4 * MaxDepth)
+    return;
+  ++Visits;
+  MachineInstr *MI = MRI.getVRegDef(D);
+  if (!MI)
+    return;
+  const unsigned Bits = MRI.getType(D).getSizeInBits();
+  const unsigned Opc = MI->getOpcode();
+  Path.push_back(D);
+  // D[I] == Src[Off + I] for I < Avail, filled above by Fill.
+  auto Through = [&](Register Src, uint64_t Off, uint64_t Avail,
+                     BitFieldExtKind Fill) {
+    LLT SrcTy = MRI.getType(Src);
+    if (isBitFieldViewType(SrcTy) && Off + Avail <= SrcTy.getSizeInBits())
+      step(Src, F.stepThrough(Off, Avail, SrcTy.getSizeInBits(), Fill));
+  };
+
+  switch (Opc) {
+  case TargetOpcode::G_LSHR:
+  case TargetOpcode::G_ASHR:
+  case TargetOpcode::G_SHL: {
+    // A shift by a constant inside the width; a larger amount is poison.
+    std::optional<uint64_t> Amt = getConstant(MI->getOperand(2).getReg());
+    if (!Amt || *Amt >= Bits)
+      break;
+    Register Src = MI->getOperand(1).getReg();
+    if (Opc == TargetOpcode::G_LSHR)
+      Through(Src, *Amt, Bits - *Amt, BitFieldExtKind::Zero);
+    else if (Opc == TargetOpcode::G_ASHR)
+      Through(Src, *Amt, Bits - *Amt, BitFieldExtKind::Sign);
+    else if (F.Lo >= *Amt)
+      // The field lies above the zeros that the shift brings in.
+      step(Src, BitField{F.Lo - unsigned(*Amt), F.Width, F.Ext});
+    break;
+  }
+  case TargetOpcode::G_AND:
+  case TargetOpcode::G_OR:
+  case TargetOpcode::G_XOR:
+    // Either operand may select the field of the other by its known bits.
+    for (unsigned I : {1, 2}) {
+      Register X = MI->getOperand(I).getReg();
+      Register Y = MI->getOperand(3 - I).getReg();
+      KnownBits Known;
+      if (VT) {
+        Known = VT->getKnownBits(X);
+      } else if (std::optional<APInt> C = getIConstantVRegVal(X, MRI)) {
+        Known = KnownBits::makeConstant(*C);
+      } else {
+        continue;
+      }
+      step(Y, F.stepThroughMask(Opc == TargetOpcode::G_AND, Known));
+    }
+    break;
+  case TargetOpcode::G_TRUNC:
+    Through(MI->getOperand(1).getReg(), 0, Bits, BitFieldExtKind::None);
+    break;
+  case TargetOpcode::G_ZEXT:
+  case TargetOpcode::G_SEXT:
+  case TargetOpcode::G_ANYEXT: {
+    Register Src = MI->getOperand(1).getReg();
+    // The high bits of G_ANYEXT are unspecified: the field must not read
+    // them.
+    BitFieldExtKind Fill = BitFieldExtKind::None;
+    if (Opc == TargetOpcode::G_ZEXT)
+      Fill = BitFieldExtKind::Zero;
+    else if (Opc == TargetOpcode::G_SEXT)
+      Fill = BitFieldExtKind::Sign;
+    Through(Src, 0, MRI.getType(Src).getSizeInBits(), Fill);
+    break;
+  }
+  case TargetOpcode::G_SEXT_INREG: {
+    int64_t Width = MI->getOperand(2).getImm();
+    if (Width >= 1 && Width <= Bits)
+      Through(MI->getOperand(1).getReg(), 0, Width, BitFieldExtKind::Sign);
+    break;
+  }
+  case TargetOpcode::G_UBFX:
+  case TargetOpcode::G_SBFX: {
+    // Poison unless the position and the width select bits inside the value.
+    std::optional<uint64_t> Pos = getConstant(MI->getOperand(2).getReg());
+    std::optional<uint64_t> Width = getConstant(MI->getOperand(3).getReg());
+    if (!Pos || !Width || *Width == 0 || *Pos + *Width > Bits)
+      break;
+    Through(MI->getOperand(1).getReg(), *Pos, *Width,
+            Opc == TargetOpcode::G_UBFX ? BitFieldExtKind::Zero
+                                        : BitFieldExtKind::Sign);
+    break;
+  }
+  case TargetOpcode::G_EXTRACT:
+    Through(MI->getOperand(1).getReg(), MI->getOperand(2).getImm(), Bits,
+            BitFieldExtKind::None);
+    break;
+  case TargetOpcode::G_UNMERGE_VALUES: {
+    // D is part J of the operand.
+    const unsigned NumDefs = MI->getNumDefs();
+    for (unsigned J = 0; J != NumDefs; ++J)
+      if (MI->getOperand(J).getReg() == D)
+        Through(MI->getOperand(NumDefs).getReg(), uint64_t(J) * Bits, Bits,
+                BitFieldExtKind::None);
+    break;
+  }
+  case TargetOpcode::G_MERGE_VALUES: {
+    // A field inside one part is a field of that part.
+    LLT PartTy = MRI.getType(MI->getOperand(1).getReg());
+    if (!isBitFieldViewType(PartTy))
+      break;
+    const unsigned PartBits = PartTy.getSizeInBits();
+    const unsigned Idx = F.Lo / PartBits;
+    if ((F.Lo + F.Width - 1) / PartBits == Idx)
+      step(MI->getOperand(1 + Idx).getReg(),
+           BitField{F.Lo - Idx * PartBits, F.Width, F.Ext});
+    break;
+  }
+  default:
+    // Not G_FREEZE in particular: a field of a frozen value is not a field of
+    // the value before it was frozen.
+    break;
+  }
+  Path.pop_back();
+}
+
+void llvm::forEachBitFieldView(
+    Register Root, const MachineRegisterInfo &MRI, GISelValueTracking *VT,
+    function_ref<void(const BitFieldView<Register> &, ArrayRef<Register>)>
+        Callback,
+    unsigned MaxDepth) {
+  if (!Root.isVirtual())
+    return;
+  LLT Ty = MRI.getType(Root);
+  if (!isBitFieldViewType(Ty))
+    return;
+  BitFieldViewWalker(MRI, VT, Callback, MaxDepth)
+      .visit(Root,
+             BitField{0, unsigned(Ty.getSizeInBits()), BitFieldExtKind::None});
+}
+
 APInt llvm::GIConstant::getScalarValue() const {
   assert(Kind == GIConstantKind::Scalar && "Expected scalar constant");
 

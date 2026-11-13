@@ -3132,19 +3132,19 @@ define i40 @load_i40(ptr addrspace(8) inreg %buf) {
 ; GISEL-NEXT:    buffer_load_ubyte v1, off, s[16:19], 0 offset:4
 ; GISEL-NEXT:    s_waitcnt vmcnt(1)
 ; GISEL-NEXT:    v_readfirstlane_b32 s4, v0
-; GISEL-NEXT:    s_lshr_b32 s5, s4, 8
-; GISEL-NEXT:    s_lshr_b32 s6, s4, 16
-; GISEL-NEXT:    s_lshr_b32 s7, s4, 24
-; GISEL-NEXT:    s_and_b32 s4, s4, 0xff
+; GISEL-NEXT:    s_lshr_b32 s5, s4, 24
+; GISEL-NEXT:    s_and_b32 s7, 0xffff, s4
+; GISEL-NEXT:    s_and_b32 s6, s4, 0xff
+; GISEL-NEXT:    s_bfe_u32 s4, s4, 0x80010
+; GISEL-NEXT:    s_lshr_b32 s7, s7, 8
 ; GISEL-NEXT:    s_lshl_b32 s5, s5, 8
-; GISEL-NEXT:    s_and_b32 s6, s6, 0xff
 ; GISEL-NEXT:    s_lshl_b32 s7, s7, 8
 ; GISEL-NEXT:    s_or_b32 s4, s4, s5
 ; GISEL-NEXT:    s_or_b32 s5, s6, s7
-; GISEL-NEXT:    s_and_b32 s5, 0xffff, s5
 ; GISEL-NEXT:    s_and_b32 s4, 0xffff, s4
-; GISEL-NEXT:    s_lshl_b32 s5, s5, 16
-; GISEL-NEXT:    s_or_b32 s4, s4, s5
+; GISEL-NEXT:    s_and_b32 s5, 0xffff, s5
+; GISEL-NEXT:    s_lshl_b32 s4, s4, 16
+; GISEL-NEXT:    s_or_b32 s4, s5, s4
 ; GISEL-NEXT:    v_mov_b32_e32 v0, s4
 ; GISEL-NEXT:    s_waitcnt vmcnt(0)
 ; GISEL-NEXT:    s_setpc_b64 s[30:31]

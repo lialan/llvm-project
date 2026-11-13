@@ -706,6 +706,12 @@ public:
   LLVM_ABI bool matchBitfieldExtractFromShrAnd(MachineInstr &MI,
                                                BuildFnTy &MatchInfo) const;
 
+  /// Match a value that composes instructions which select, move or extend
+  /// bits, and rewrite it as the cheapest legal form of its bit-field view if
+  /// that removes more than it adds, e.g.
+  /// and (lshr (and (lshr x, 4), 255), 2), 15 -> ubfx x, 6, 4
+  LLVM_ABI bool matchBitFieldView(MachineInstr &MI, BuildFnTy &MatchInfo) const;
+
   // Helpers for reassociation:
   LLVM_ABI bool matchReassocConstantInnerRHS(GPtrAdd &MI, MachineInstr *RHS,
                                              BuildFnTy &MatchInfo) const;

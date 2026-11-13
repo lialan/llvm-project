@@ -251,9 +251,8 @@ body:             |
     ; CHECK: liveins: $h0
     ; CHECK-NEXT: {{  $}}
     ; CHECK-NEXT: [[COPY:%[0-9]+]]:_(i16) = COPY $h0
-    ; CHECK-NEXT: [[ZEXT:%[0-9]+]]:_(i32) = G_ZEXT [[COPY]](i16)
-    ; CHECK-NEXT: [[SEXT:%[0-9]+]]:_(i64) = G_SEXT [[ZEXT]](i32)
-    ; CHECK-NEXT: $x0 = COPY [[SEXT]](i64)
+    ; CHECK-NEXT: [[ZEXT:%[0-9]+]]:_(i64) = G_ZEXT [[COPY]](i16)
+    ; CHECK-NEXT: $x0 = COPY [[ZEXT]](i64)
     %0:_(i16) = COPY $h0
     %1:_(i32) = G_ZEXT %0(i16)
     %2:_(i64) = G_SEXT %1(i32)
@@ -385,8 +384,8 @@ body:             |
     ; CHECK: liveins: $h0
     ; CHECK-NEXT: {{  $}}
     ; CHECK-NEXT: [[COPY:%[0-9]+]]:_(i16) = COPY $h0
-    ; CHECK-NEXT: %2:_(i64) = nneg G_ZEXT [[COPY]](i16)
-    ; CHECK-NEXT: $x0 = COPY %2(i64)
+    ; CHECK-NEXT: [[ZEXT:%[0-9]+]]:_(i64) = nneg G_ZEXT [[COPY]](i16)
+    ; CHECK-NEXT: $x0 = COPY [[ZEXT]](i64)
     %0:_(i16) = COPY $h0
     %1:_(i32) = G_ANYEXT %0(i16)
     %2:_(i64) = nneg G_ZEXT %1(i32)
@@ -401,8 +400,8 @@ body:             |
     ; CHECK: liveins: $h0
     ; CHECK-NEXT: {{  $}}
     ; CHECK-NEXT: [[COPY:%[0-9]+]]:_(i16) = COPY $h0
-    ; CHECK-NEXT: %2:_(i64) = nneg G_ZEXT [[COPY]](i16)
-    ; CHECK-NEXT: $x0 = COPY %2(i64)
+    ; CHECK-NEXT: [[ZEXT:%[0-9]+]]:_(i64) = nneg G_ZEXT [[COPY]](i16)
+    ; CHECK-NEXT: $x0 = COPY [[ZEXT]](i64)
     %0:_(i16) = COPY $h0
     %1:_(i32) = nneg G_ZEXT %0(i16)
     %2:_(i64) = G_ANYEXT %1(i32)

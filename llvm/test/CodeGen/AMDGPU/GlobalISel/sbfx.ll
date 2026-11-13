@@ -134,9 +134,8 @@ define i32 @v_lshr_trunc_sext_lshr_i64(i64 %value) {
 ; GCN-LABEL: v_lshr_trunc_sext_lshr_i64:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GCN-NEXT:    v_ashrrev_i64 v[0:1], 1, v[0:1]
-; GCN-NEXT:    v_ashrrev_i32_e32 v1, 31, v0
-; GCN-NEXT:    v_lshrrev_b64 v[0:1], 1, v[0:1]
+; GCN-NEXT:    v_lshrrev_b64 v[0:1], 2, v[0:1]
+; GCN-NEXT:    v_bfe_i32 v0, v0, 0, 31
 ; GCN-NEXT:    s_setpc_b64 s[30:31]
   %shift = lshr i64 %value, 1
   %trunc = trunc i64 %shift to i32

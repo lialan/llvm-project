@@ -982,10 +982,9 @@ define <4 x float> @select_const_i1(i1 %c) {
 ;
 ; CHECK-GI-LABEL: select_const_i1:
 ; CHECK-GI:       // %bb.0: // %entry
-; CHECK-GI-NEXT:    and w8, w0, #0x1
+; CHECK-GI-NEXT:    sbfx w8, w0, #0, #1
 ; CHECK-GI-NEXT:    fmov v0.4s, #1.00000000
 ; CHECK-GI-NEXT:    movi v1.2d, #0000000000000000
-; CHECK-GI-NEXT:    sbfx w8, w8, #0, #1
 ; CHECK-GI-NEXT:    dup v2.4s, w8
 ; CHECK-GI-NEXT:    bif v0.16b, v1.16b, v2.16b
 ; CHECK-GI-NEXT:    ret

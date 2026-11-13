@@ -28,16 +28,16 @@ define i16 @halfword(ptr %ctx, i32 %xor72) nounwind {
 ;
 ; CHECK0-GISEL-LABEL: halfword:
 ; CHECK0-GISEL:       // %bb.0:
-; CHECK0-GISEL-NEXT:    str x30, [sp, #-32]! // 8-byte Folded Spill
-; CHECK0-GISEL-NEXT:    lsr w8, w1, #9
+; CHECK0-GISEL-NEXT:    stp x30, x21, [sp, #-32]! // 16-byte Folded Spill
+; CHECK0-GISEL-NEXT:    ubfx w21, w1, #9, #8
 ; CHECK0-GISEL-NEXT:    stp x20, x19, [sp, #16] // 16-byte Folded Spill
-; CHECK0-GISEL-NEXT:    add x20, x0, w8, uxtb #1
-; CHECK0-GISEL-NEXT:    ldrh w19, [x20]
+; CHECK0-GISEL-NEXT:    mov x19, x0
+; CHECK0-GISEL-NEXT:    ldrh w20, [x0, w21, uxtw #1]
 ; CHECK0-GISEL-NEXT:    bl foo
-; CHECK0-GISEL-NEXT:    mov w0, w19
-; CHECK0-GISEL-NEXT:    strh w19, [x20]
+; CHECK0-GISEL-NEXT:    mov w0, w20
+; CHECK0-GISEL-NEXT:    strh w20, [x19, w21, uxtw #1]
 ; CHECK0-GISEL-NEXT:    ldp x20, x19, [sp, #16] // 16-byte Folded Reload
-; CHECK0-GISEL-NEXT:    ldr x30, [sp], #32 // 8-byte Folded Reload
+; CHECK0-GISEL-NEXT:    ldp x30, x21, [sp], #32 // 16-byte Folded Reload
 ; CHECK0-GISEL-NEXT:    ret
 ;
 ; CHECK3-SDAG-LABEL: halfword:
@@ -58,14 +58,13 @@ define i16 @halfword(ptr %ctx, i32 %xor72) nounwind {
 ; CHECK3-GISEL-LABEL: halfword:
 ; CHECK3-GISEL:       // %bb.0:
 ; CHECK3-GISEL-NEXT:    stp x30, x21, [sp, #-32]! // 16-byte Folded Spill
-; CHECK3-GISEL-NEXT:    lsr w8, w1, #9
+; CHECK3-GISEL-NEXT:    ubfx w21, w1, #9, #8
 ; CHECK3-GISEL-NEXT:    stp x20, x19, [sp, #16] // 16-byte Folded Spill
 ; CHECK3-GISEL-NEXT:    mov x19, x0
-; CHECK3-GISEL-NEXT:    and x21, x8, #0xff
-; CHECK3-GISEL-NEXT:    ldrh w20, [x0, x21, lsl #1]
+; CHECK3-GISEL-NEXT:    ldrh w20, [x0, w21, uxtw #1]
 ; CHECK3-GISEL-NEXT:    bl foo
 ; CHECK3-GISEL-NEXT:    mov w0, w20
-; CHECK3-GISEL-NEXT:    strh w20, [x19, x21, lsl #1]
+; CHECK3-GISEL-NEXT:    strh w20, [x19, w21, uxtw #1]
 ; CHECK3-GISEL-NEXT:    ldp x20, x19, [sp, #16] // 16-byte Folded Reload
 ; CHECK3-GISEL-NEXT:    ldp x30, x21, [sp], #32 // 16-byte Folded Reload
 ; CHECK3-GISEL-NEXT:    ret
@@ -98,14 +97,13 @@ define i32 @word(ptr %ctx, i32 %xor72) nounwind {
 ; CHECK0-GISEL-LABEL: word:
 ; CHECK0-GISEL:       // %bb.0:
 ; CHECK0-GISEL-NEXT:    stp x30, x21, [sp, #-32]! // 16-byte Folded Spill
-; CHECK0-GISEL-NEXT:    lsr w8, w1, #9
+; CHECK0-GISEL-NEXT:    ubfx w21, w1, #9, #8
 ; CHECK0-GISEL-NEXT:    stp x20, x19, [sp, #16] // 16-byte Folded Spill
 ; CHECK0-GISEL-NEXT:    mov x19, x0
-; CHECK0-GISEL-NEXT:    and x21, x8, #0xff
-; CHECK0-GISEL-NEXT:    ldr w20, [x0, x21, lsl #2]
+; CHECK0-GISEL-NEXT:    ldr w20, [x0, w21, uxtw #2]
 ; CHECK0-GISEL-NEXT:    bl foo
 ; CHECK0-GISEL-NEXT:    mov w0, w20
-; CHECK0-GISEL-NEXT:    str w20, [x19, x21, lsl #2]
+; CHECK0-GISEL-NEXT:    str w20, [x19, w21, uxtw #2]
 ; CHECK0-GISEL-NEXT:    ldp x20, x19, [sp, #16] // 16-byte Folded Reload
 ; CHECK0-GISEL-NEXT:    ldp x30, x21, [sp], #32 // 16-byte Folded Reload
 ; CHECK0-GISEL-NEXT:    ret
@@ -128,14 +126,13 @@ define i32 @word(ptr %ctx, i32 %xor72) nounwind {
 ; CHECK3-GISEL-LABEL: word:
 ; CHECK3-GISEL:       // %bb.0:
 ; CHECK3-GISEL-NEXT:    stp x30, x21, [sp, #-32]! // 16-byte Folded Spill
-; CHECK3-GISEL-NEXT:    lsr w8, w1, #9
+; CHECK3-GISEL-NEXT:    ubfx w21, w1, #9, #8
 ; CHECK3-GISEL-NEXT:    stp x20, x19, [sp, #16] // 16-byte Folded Spill
 ; CHECK3-GISEL-NEXT:    mov x19, x0
-; CHECK3-GISEL-NEXT:    and x21, x8, #0xff
-; CHECK3-GISEL-NEXT:    ldr w20, [x0, x21, lsl #2]
+; CHECK3-GISEL-NEXT:    ldr w20, [x0, w21, uxtw #2]
 ; CHECK3-GISEL-NEXT:    bl foo
 ; CHECK3-GISEL-NEXT:    mov w0, w20
-; CHECK3-GISEL-NEXT:    str w20, [x19, x21, lsl #2]
+; CHECK3-GISEL-NEXT:    str w20, [x19, w21, uxtw #2]
 ; CHECK3-GISEL-NEXT:    ldp x20, x19, [sp, #16] // 16-byte Folded Reload
 ; CHECK3-GISEL-NEXT:    ldp x30, x21, [sp], #32 // 16-byte Folded Reload
 ; CHECK3-GISEL-NEXT:    ret
@@ -168,14 +165,13 @@ define i64 @doubleword(ptr %ctx, i32 %xor72) nounwind {
 ; CHECK0-GISEL-LABEL: doubleword:
 ; CHECK0-GISEL:       // %bb.0:
 ; CHECK0-GISEL-NEXT:    stp x30, x21, [sp, #-32]! // 16-byte Folded Spill
-; CHECK0-GISEL-NEXT:    lsr w8, w1, #9
+; CHECK0-GISEL-NEXT:    ubfx w21, w1, #9, #8
 ; CHECK0-GISEL-NEXT:    stp x20, x19, [sp, #16] // 16-byte Folded Spill
 ; CHECK0-GISEL-NEXT:    mov x19, x0
-; CHECK0-GISEL-NEXT:    and x21, x8, #0xff
-; CHECK0-GISEL-NEXT:    ldr x20, [x0, x21, lsl #3]
+; CHECK0-GISEL-NEXT:    ldr x20, [x0, w21, uxtw #3]
 ; CHECK0-GISEL-NEXT:    bl foo
 ; CHECK0-GISEL-NEXT:    mov x0, x20
-; CHECK0-GISEL-NEXT:    str x20, [x19, x21, lsl #3]
+; CHECK0-GISEL-NEXT:    str x20, [x19, w21, uxtw #3]
 ; CHECK0-GISEL-NEXT:    ldp x20, x19, [sp, #16] // 16-byte Folded Reload
 ; CHECK0-GISEL-NEXT:    ldp x30, x21, [sp], #32 // 16-byte Folded Reload
 ; CHECK0-GISEL-NEXT:    ret
@@ -198,14 +194,13 @@ define i64 @doubleword(ptr %ctx, i32 %xor72) nounwind {
 ; CHECK3-GISEL-LABEL: doubleword:
 ; CHECK3-GISEL:       // %bb.0:
 ; CHECK3-GISEL-NEXT:    stp x30, x21, [sp, #-32]! // 16-byte Folded Spill
-; CHECK3-GISEL-NEXT:    lsr w8, w1, #9
+; CHECK3-GISEL-NEXT:    ubfx w21, w1, #9, #8
 ; CHECK3-GISEL-NEXT:    stp x20, x19, [sp, #16] // 16-byte Folded Spill
 ; CHECK3-GISEL-NEXT:    mov x19, x0
-; CHECK3-GISEL-NEXT:    and x21, x8, #0xff
-; CHECK3-GISEL-NEXT:    ldr x20, [x0, x21, lsl #3]
+; CHECK3-GISEL-NEXT:    ldr x20, [x0, w21, uxtw #3]
 ; CHECK3-GISEL-NEXT:    bl foo
 ; CHECK3-GISEL-NEXT:    mov x0, x20
-; CHECK3-GISEL-NEXT:    str x20, [x19, x21, lsl #3]
+; CHECK3-GISEL-NEXT:    str x20, [x19, w21, uxtw #3]
 ; CHECK3-GISEL-NEXT:    ldp x20, x19, [sp, #16] // 16-byte Folded Reload
 ; CHECK3-GISEL-NEXT:    ldp x30, x21, [sp], #32 // 16-byte Folded Reload
 ; CHECK3-GISEL-NEXT:    ret
@@ -247,23 +242,26 @@ define i16 @multi_use_half_word(ptr %ctx, i32 %xor72) {
 ;
 ; CHECK0-GISEL-LABEL: multi_use_half_word:
 ; CHECK0-GISEL:       // %bb.0: // %entry
-; CHECK0-GISEL-NEXT:    stp x30, x21, [sp, #-32]! // 16-byte Folded Spill
-; CHECK0-GISEL-NEXT:    stp x20, x19, [sp, #16] // 16-byte Folded Spill
-; CHECK0-GISEL-NEXT:    .cfi_def_cfa_offset 32
+; CHECK0-GISEL-NEXT:    str x30, [sp, #-48]! // 8-byte Folded Spill
+; CHECK0-GISEL-NEXT:    stp x22, x21, [sp, #16] // 16-byte Folded Spill
+; CHECK0-GISEL-NEXT:    stp x20, x19, [sp, #32] // 16-byte Folded Spill
+; CHECK0-GISEL-NEXT:    .cfi_def_cfa_offset 48
 ; CHECK0-GISEL-NEXT:    .cfi_offset w19, -8
 ; CHECK0-GISEL-NEXT:    .cfi_offset w20, -16
 ; CHECK0-GISEL-NEXT:    .cfi_offset w21, -24
-; CHECK0-GISEL-NEXT:    .cfi_offset w30, -32
-; CHECK0-GISEL-NEXT:    lsr w8, w1, #9
-; CHECK0-GISEL-NEXT:    add x20, x0, w8, uxtb #1
-; CHECK0-GISEL-NEXT:    ldrh w19, [x20]
-; CHECK0-GISEL-NEXT:    add w21, w19, #1
+; CHECK0-GISEL-NEXT:    .cfi_offset w22, -32
+; CHECK0-GISEL-NEXT:    .cfi_offset w30, -48
+; CHECK0-GISEL-NEXT:    ubfx w21, w1, #9, #8
+; CHECK0-GISEL-NEXT:    mov x19, x0
+; CHECK0-GISEL-NEXT:    ldrh w20, [x0, w21, uxtw #1]
+; CHECK0-GISEL-NEXT:    add w22, w20, #1
 ; CHECK0-GISEL-NEXT:    bl foo
-; CHECK0-GISEL-NEXT:    strh w19, [x20]
-; CHECK0-GISEL-NEXT:    mov w0, w19
-; CHECK0-GISEL-NEXT:    strh w21, [x20]
-; CHECK0-GISEL-NEXT:    ldp x20, x19, [sp, #16] // 16-byte Folded Reload
-; CHECK0-GISEL-NEXT:    ldp x30, x21, [sp], #32 // 16-byte Folded Reload
+; CHECK0-GISEL-NEXT:    strh w20, [x19, w21, uxtw #1]
+; CHECK0-GISEL-NEXT:    mov w0, w20
+; CHECK0-GISEL-NEXT:    strh w22, [x19, w21, uxtw #1]
+; CHECK0-GISEL-NEXT:    ldp x20, x19, [sp, #32] // 16-byte Folded Reload
+; CHECK0-GISEL-NEXT:    ldp x22, x21, [sp, #16] // 16-byte Folded Reload
+; CHECK0-GISEL-NEXT:    ldr x30, [sp], #48 // 8-byte Folded Reload
 ; CHECK0-GISEL-NEXT:    ret
 ;
 ; CHECK3-SDAG-LABEL: multi_use_half_word:
@@ -301,15 +299,14 @@ define i16 @multi_use_half_word(ptr %ctx, i32 %xor72) {
 ; CHECK3-GISEL-NEXT:    .cfi_offset w21, -24
 ; CHECK3-GISEL-NEXT:    .cfi_offset w22, -32
 ; CHECK3-GISEL-NEXT:    .cfi_offset w30, -48
-; CHECK3-GISEL-NEXT:    lsr w8, w1, #9
+; CHECK3-GISEL-NEXT:    ubfx w21, w1, #9, #8
 ; CHECK3-GISEL-NEXT:    mov x19, x0
-; CHECK3-GISEL-NEXT:    and x21, x8, #0xff
-; CHECK3-GISEL-NEXT:    ldrh w20, [x0, x21, lsl #1]
+; CHECK3-GISEL-NEXT:    ldrh w20, [x0, w21, uxtw #1]
 ; CHECK3-GISEL-NEXT:    add w22, w20, #1
 ; CHECK3-GISEL-NEXT:    bl foo
-; CHECK3-GISEL-NEXT:    strh w20, [x19, x21, lsl #1]
+; CHECK3-GISEL-NEXT:    strh w20, [x19, w21, uxtw #1]
 ; CHECK3-GISEL-NEXT:    mov w0, w20
-; CHECK3-GISEL-NEXT:    strh w22, [x19, x21, lsl #1]
+; CHECK3-GISEL-NEXT:    strh w22, [x19, w21, uxtw #1]
 ; CHECK3-GISEL-NEXT:    ldp x20, x19, [sp, #32] // 16-byte Folded Reload
 ; CHECK3-GISEL-NEXT:    ldp x22, x21, [sp, #16] // 16-byte Folded Reload
 ; CHECK3-GISEL-NEXT:    ldr x30, [sp], #48 // 8-byte Folded Reload

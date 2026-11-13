@@ -20,22 +20,13 @@
 ; ---------------------------------------------------------------------------- ;
 
 define i1 @shifts_eqcmp_i16_i8(i16 %x) nounwind {
-; CHECK-SD-LABEL: shifts_eqcmp_i16_i8:
-; CHECK-SD:       // %bb.0:
-; CHECK-SD-NEXT:    sxtb w8, w0
-; CHECK-SD-NEXT:    and w8, w8, #0xffff
-; CHECK-SD-NEXT:    cmp w8, w0, uxth
-; CHECK-SD-NEXT:    cset w0, eq
-; CHECK-SD-NEXT:    ret
-;
-; CHECK-GI-LABEL: shifts_eqcmp_i16_i8:
-; CHECK-GI:       // %bb.0:
-; CHECK-GI-NEXT:    lsl w8, w0, #8
-; CHECK-GI-NEXT:    sxth w8, w8
-; CHECK-GI-NEXT:    ubfx w8, w8, #8, #16
-; CHECK-GI-NEXT:    cmp w8, w0, uxth
-; CHECK-GI-NEXT:    cset w0, eq
-; CHECK-GI-NEXT:    ret
+; CHECK-LABEL: shifts_eqcmp_i16_i8:
+; CHECK:       // %bb.0:
+; CHECK-NEXT:    sxtb w8, w0
+; CHECK-NEXT:    and w8, w8, #0xffff
+; CHECK-NEXT:    cmp w8, w0, uxth
+; CHECK-NEXT:    cset w0, eq
+; CHECK-NEXT:    ret
   %tmp0 = shl i16 %x, 8 ; 16-8
   %tmp1 = ashr exact i16 %tmp0, 8 ; 16-8
   %tmp2 = icmp eq i16 %tmp1, %x

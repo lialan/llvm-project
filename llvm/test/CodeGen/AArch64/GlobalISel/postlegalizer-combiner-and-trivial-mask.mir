@@ -130,9 +130,7 @@ body:             |
     ; CHECK-NEXT: %x:_(i32) = COPY $w0
     ; CHECK-NEXT: %y:_(i32) = COPY $w1
     ; CHECK-NEXT: %z:_(i32) = COPY $w2
-    ; CHECK-NEXT: %ext:_(i64) = G_SEXT %z(i32)
-    ; CHECK-NEXT: %mask:_(i64) = G_CONSTANT i64 4294967295
-    ; CHECK-NEXT: %and:_(i64) = G_AND %ext, %mask
+    ; CHECK-NEXT: %and:_(i64) = G_ZEXT %z(i32)
     ; CHECK-NEXT: $x0 = COPY %and(i64)
     ; CHECK-NEXT: RET_ReallyLR implicit $x0
     %x:_(i32) = COPY $w0

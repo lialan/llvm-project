@@ -511,6 +511,7 @@ public:
                          EVT VT) const override;
   MVT getScalarShiftAmountTy(const DataLayout &, EVT) const override;
   LLT getPreferredShiftAmountTy(LLT Ty) const override;
+  bool isBitFieldViewTypeDesirable(LLT Ty, bool IsPreLegalize) const override;
 
   bool isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
                                   EVT VT) const override;

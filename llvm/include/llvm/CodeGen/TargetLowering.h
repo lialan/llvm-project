@@ -561,6 +561,24 @@ public:
   /// Return true if the target has BitExtract instructions.
   bool hasExtractBitsInsn() const { return HasExtractBitsInsn; }
 
+  /// Return true if one instruction extracts a bit field of constant position
+  /// and width from a value of type \p VT and zero-extends it (or, if
+  /// \p IsSigned, sign-extends it). The bit-field view combines then count
+  /// such an extract as one operation: G_UBFX or G_SBFX in GlobalISel, and
+  /// (and (srl X, Lo), Mask) or (sign_extend_inreg (srl X, Lo), FieldVT) in
+  /// SelectionDAG. The SelectionDAG combine only rewrites values of a type for
+  /// which this returns true.
+  virtual bool isBitFieldExtractProfitable(EVT VT, bool IsSigned) const {
+    return false;
+  }
+
+  /// Return true if the GlobalISel bit-field view combine may create new
+  /// operations whose result has the scalar type \p Ty. \p IsPreLegalize is
+  /// true if the combine runs before the legalizer.
+  virtual bool isBitFieldViewTypeDesirable(LLT Ty, bool IsPreLegalize) const {
+    return true;
+  }
+
   /// Return the preferred vector type legalization action.
   virtual TargetLoweringBase::LegalizeTypeAction
   getPreferredVectorAction(MVT VT) const {

@@ -4887,6 +4887,282 @@ bool CombinerHelper::matchBitfieldExtractFromShrAnd(
   return true;
 }
 
+/// Builds the form \p Form of a bit-field view of \p Src into \p Dst.
+static void buildBitFieldForm(MachineIRBuilder &B, const TargetLowering &TLI,
+                              Register Dst, LLT Ty, Register Src, LLT SrcTy,
+                              ArrayRef<BitFieldFormOp> Form) {
+  if (Form.empty()) {
+    B.buildCopy(Dst, Src);
+    return;
+  }
+  Register Cur = Src;
+  LLT CurTy = SrcTy;
+  for (auto [I, Op] : enumerate(Form)) {
+    // Each operation is in the type of the result or of the source.
+    LLT ResTy = Op.Bits == Ty.getSizeInBits() ? Ty : SrcTy;
+    DstOp Res = I + 1 == Form.size() ? DstOp(Dst) : DstOp(ResTy);
+    MachineInstrBuilder MIB;
+    switch (Op.Kind) {
+    case BitFieldFormOp::Trunc:
+      MIB = B.buildTrunc(Res, Cur);
+      break;
+    case BitFieldFormOp::AnyExt:
+      MIB = B.buildAnyExt(Res, Cur);
+      break;
+    case BitFieldFormOp::ZExt:
+      MIB = B.buildZExt(Res, Cur);
+      break;
+    case BitFieldFormOp::SExt:
+      MIB = B.buildSExt(Res, Cur);
+      break;
+    case BitFieldFormOp::LShr:
+    case BitFieldFormOp::AShr:
+    case BitFieldFormOp::Shl: {
+      unsigned Opc = Op.Kind == BitFieldFormOp::LShr   ? TargetOpcode::G_LSHR
+                     : Op.Kind == BitFieldFormOp::AShr ? TargetOpcode::G_ASHR
+                                                       : TargetOpcode::G_SHL;
+      auto Amt = B.buildConstant(TLI.getPreferredShiftAmountTy(CurTy), Op.Imm0);
+      MIB = B.buildInstr(Opc, {Res}, {Cur, Amt});
+      break;
+    }
+    case BitFieldFormOp::AndLow:
+      MIB = B.buildAnd(
+          Res, Cur,
+          B.buildConstant(CurTy, APInt::getLowBitsSet(Op.Bits, Op.Imm0)));
+      break;
+    case BitFieldFormOp::SExtInReg:
+      MIB = B.buildSExtInReg(Res, Cur, Op.Imm0);
+      break;
+    case BitFieldFormOp::UBFX:
+    case BitFieldFormOp::SBFX: {
+      LLT PosTy = TLI.getPreferredShiftAmountTy(CurTy);
+      auto Pos = B.buildConstant(PosTy, Op.Imm0);
+      auto Width = B.buildConstant(PosTy, Op.Imm1);
+      MIB = Op.Kind == BitFieldFormOp::UBFX ? B.buildUbfx(Res, Cur, Pos, Width)
+                                            : B.buildSbfx(Res, Cur, Pos, Width);
+      break;
+    }
+    }
+    Cur = MIB.getReg(0);
+    CurTy = ResTy;
+  }
+}
+
+bool CombinerHelper::matchBitFieldView(MachineInstr &MI,
+                                       BuildFnTy &MatchInfo) const {
+  const Register Dst = MI.getOperand(0).getReg();
+  const LLT Ty = MRI.getType(Dst);
+  if (!Ty.isScalar() || Ty.isFloat())
+    return false;
+  const TargetLowering &TLI = getTargetLowering();
+  LLVMContext &Ctx = MI.getMF()->getFunction().getContext();
+
+  auto IsExtractCheap = [&](LLT ValTy, bool IsSigned) {
+    return TLI.isBitFieldExtractProfitable(getApproximateEVTForLLT(ValTy, Ctx),
+                                           IsSigned);
+  };
+
+  // The legalizer can widen a G_UBFX or G_SBFX but not narrow it, so only a
+  // bit-field extract that is legal, custom, or legal after widening (before
+  // the legalizer) is formed. The custom action matches the other
+  // form_bitfield_extract rules.
+  auto IsExtractLegal = [&](unsigned Opc, LLT ValTy, LLT PosTy) {
+    if (!LI)
+      return false;
+    LLT Types[] = {ValTy, PosTy};
+    for (unsigned Iter = 0; Iter != 4; ++Iter) {
+      LegalizeActionStep Step = LI->getAction({Opc, Types});
+      if (Step.Action == LegalizeActions::Legal ||
+          Step.Action == LegalizeActions::Custom)
+        return true;
+      if (!isPreLegalize() || Step.Action != LegalizeActions::WidenScalar)
+        return false;
+      Types[Step.TypeIdx] = Step.NewType;
+    }
+    return false;
+  };
+
+  // The cost of an operation of a chain or of a form with the result type
+  // \p ValTy and the operand type \p SrcTy: none for a truncation, an
+  // any-extension, a free zero extension or the parts of a concatenation, which
+  // usually need no instruction, and two for a bit-field extract that is not
+  // one.
+  auto GetOpCost = [&](unsigned Opc, LLT ValTy, LLT SrcTy) -> unsigned {
+    switch (Opc) {
+    case TargetOpcode::G_TRUNC:
+    case TargetOpcode::G_ANYEXT:
+    case TargetOpcode::G_EXTRACT:
+    case TargetOpcode::G_UNMERGE_VALUES:
+    case TargetOpcode::G_MERGE_VALUES:
+      return 0;
+    case TargetOpcode::G_ZEXT:
+      return TLI.isZExtFree(SrcTy, ValTy, Ctx) ? 0 : 1;
+    case TargetOpcode::G_UBFX:
+    case TargetOpcode::G_SBFX:
+      return IsExtractCheap(ValTy, Opc == TargetOpcode::G_SBFX) ? 1 : 2;
+    default:
+      return 1;
+    }
+  };
+
+  // The cost of an operation and the width that it computes in: that of its
+  // operand for an extension, else that of its result.
+  struct Cost {
+    unsigned Ops = 0;
+    unsigned NumOps = 0;
+    unsigned MaxWidth = 0;
+
+    void add(unsigned OpCost, unsigned Width) {
+      if (!OpCost)
+        return;
+      Ops += OpCost;
+      ++NumOps;
+      MaxWidth = std::max(MaxWidth, Width);
+    }
+  };
+
+  // The cost of the instructions of the path that the rewrite makes dead: the
+  // root, and then each instruction whose results only feed the previous one.
+  auto GetDeadCost = [&](ArrayRef<Register> Path) {
+    Cost C;
+    for (unsigned I = 0, E = Path.size(); I != E; ++I) {
+      const Register Reg = Path[I];
+      const MachineInstr *Def = MRI.getVRegDef(Reg);
+      if (I != 0 && !all_of(Def->defs(), [&](const MachineOperand &MO) {
+            return MO.getReg() == Reg ? MRI.hasOneNonDBGUse(Reg)
+                                      : MRI.use_nodbg_empty(MO.getReg());
+          }))
+        break;
+      const unsigned Opc = Def->getOpcode();
+      const bool IsExt =
+          Opc == TargetOpcode::G_ZEXT || Opc == TargetOpcode::G_SEXT;
+      const LLT SrcTy =
+          MRI.getType(Def->getOperand(Def->getNumDefs()).getReg());
+      const LLT WidthTy = IsExt ? SrcTy : MRI.getType(Reg);
+      C.add(GetOpCost(Opc, MRI.getType(Reg), SrcTy), WidthTy.getSizeInBits());
+    }
+    return C;
+  };
+
+  // The cost of a form, or std::nullopt if one of its operations may not be
+  // created here.
+  auto GetFormCost = [&](ArrayRef<BitFieldFormOp> Form,
+                         LLT SrcTy) -> std::optional<Cost> {
+    Cost C;
+    LLT CurTy = SrcTy;
+    for (const BitFieldFormOp &Op : Form) {
+      LLT ResTy = Op.Bits == Ty.getSizeInBits() ? Ty : SrcTy;
+      if (!TLI.isBitFieldViewTypeDesirable(ResTy, isPreLegalize()))
+        return std::nullopt;
+      unsigned Opc;
+      switch (Op.Kind) {
+      case BitFieldFormOp::AnyExt:
+        // A target may turn the G_ANYEXT into a G_ZEXT (AArch64 does), and the
+        // form would then be rewritten again and again.
+        return std::nullopt;
+      case BitFieldFormOp::Trunc:
+      case BitFieldFormOp::ZExt:
+      case BitFieldFormOp::SExt:
+        Opc = Op.Kind == BitFieldFormOp::Trunc  ? TargetOpcode::G_TRUNC
+              : Op.Kind == BitFieldFormOp::ZExt ? TargetOpcode::G_ZEXT
+                                                : TargetOpcode::G_SEXT;
+        if (!isLegalOrBeforeLegalizer({Opc, {ResTy, CurTy}}))
+          return std::nullopt;
+        break;
+      case BitFieldFormOp::LShr:
+      case BitFieldFormOp::AShr:
+      case BitFieldFormOp::Shl: {
+        Opc = Op.Kind == BitFieldFormOp::LShr   ? TargetOpcode::G_LSHR
+              : Op.Kind == BitFieldFormOp::AShr ? TargetOpcode::G_ASHR
+                                                : TargetOpcode::G_SHL;
+        LLT AmtTy = TLI.getPreferredShiftAmountTy(CurTy);
+        if (!isLegalOrBeforeLegalizer({Opc, {CurTy, AmtTy}}) ||
+            !isConstantLegalOrBeforeLegalizer(AmtTy))
+          return std::nullopt;
+        break;
+      }
+      case BitFieldFormOp::AndLow:
+        Opc = TargetOpcode::G_AND;
+        if (!isLegalOrBeforeLegalizer({Opc, {CurTy}}) ||
+            !isConstantLegalOrBeforeLegalizer(CurTy))
+          return std::nullopt;
+        break;
+      case BitFieldFormOp::SExtInReg:
+        Opc = TargetOpcode::G_SEXT_INREG;
+        if (!isLegalOrBeforeLegalizer({Opc, {CurTy}}))
+          return std::nullopt;
+        break;
+      case BitFieldFormOp::UBFX:
+      case BitFieldFormOp::SBFX: {
+        Opc = Op.Kind == BitFieldFormOp::UBFX ? TargetOpcode::G_UBFX
+                                              : TargetOpcode::G_SBFX;
+        LLT PosTy = TLI.getPreferredShiftAmountTy(CurTy);
+        if (!IsExtractLegal(Opc, CurTy, PosTy) ||
+            !isConstantLegalOrBeforeLegalizer(PosTy))
+          return std::nullopt;
+        break;
+      }
+      }
+      C.add(GetOpCost(Opc, ResTy, CurTy), CurTy.getSizeInBits());
+      CurTy = ResTy;
+    }
+    return C;
+  };
+
+  // The form that saves the most, then the one of the deepest view: it is
+  // not dependent on the operations that the view looks through. On a tie the
+  // first one is kept.
+  struct Choice {
+    Register Src;
+    BitFieldForm Form;
+    unsigned Savings;
+    unsigned Depth;
+  };
+  std::optional<Choice> Best;
+  forEachBitFieldView(
+      Dst, MRI, VT,
+      [&](const BitFieldView<Register> &V, ArrayRef<Register> Path) {
+        const LLT SrcTy = MRI.getType(V.Src);
+        // Each operation of a form has the type of the result or of the
+        // source, which must agree if they have the same width.
+        if (SrcTy.getSizeInBits() == Ty.getSizeInBits() && SrcTy != Ty)
+          return;
+        // A field of a constant is constant folded.
+        if (getIConstantVRegVal(V.Src, MRI))
+          return;
+        // A view of a single operation is that operation: rewriting it would
+        // only trade one instruction for another.
+        const Cost Dead = GetDeadCost(Path);
+        if (Dead.NumOps < 2)
+          return;
+        SmallVector<BitFieldForm, 4> Forms;
+        getBitFieldForms(V, Ty.getSizeInBits(), SrcTy.getSizeInBits(), Forms);
+        for (BitFieldForm &Form : Forms) {
+          // A form must not compute in a wider type than the instructions
+          // that it replaces: targets narrow some wide operations on purpose
+          // (e.g. 64-bit shifts by 32 or more into 32-bit ones after the
+          // legalizer), and widening them back would undo that forever.
+          std::optional<Cost> New = GetFormCost(Form, SrcTy);
+          if (!New || New->Ops >= Dead.Ops || New->MaxWidth > Dead.MaxWidth)
+            continue;
+          unsigned Savings = Dead.Ops - New->Ops;
+          if (Best && (Savings < Best->Savings || (Savings == Best->Savings &&
+                                                   Path.size() <= Best->Depth)))
+            continue;
+          Best = Choice{V.Src, std::move(Form), Savings, unsigned(Path.size())};
+        }
+      });
+  if (!Best)
+    return false;
+
+  const LLT SrcTy = MRI.getType(Best->Src);
+  MatchInfo = [&TLI, Dst, Ty, SrcTy,
+               C = std::move(*Best)](MachineIRBuilder &B) {
+    buildBitFieldForm(B, TLI, Dst, Ty, C.Src, SrcTy, C.Form);
+  };
+  return true;
+}
+
 bool CombinerHelper::reassociationCanBreakAddressingModePattern(
     MachineInstr &MI) const {
   auto &PtrAdd = cast<GPtrAdd>(MI);

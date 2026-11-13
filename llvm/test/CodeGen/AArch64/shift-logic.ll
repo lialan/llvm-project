@@ -259,8 +259,7 @@ define void @apint_type_mismatch(i16 %a, ptr %p) {
 ;
 ; CHECK-GI-LABEL: apint_type_mismatch:
 ; CHECK-GI:       // %bb.0: // %entry
-; CHECK-GI-NEXT:    ubfx w8, w0, #3, #13
-; CHECK-GI-NEXT:    and w8, w8, #0xff
+; CHECK-GI-NEXT:    ubfx w8, w0, #3, #8
 ; CHECK-GI-NEXT:    lsl w8, w8, #3
 ; CHECK-GI-NEXT:    str w8, [x1]
 ; CHECK-GI-NEXT:    ret

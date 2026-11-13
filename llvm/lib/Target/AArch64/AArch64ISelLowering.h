@@ -421,6 +421,11 @@ public:
   bool canMergeStoresTo(unsigned AddressSpace, EVT MemVT,
                         const MachineFunction &MF) const override;
 
+  bool isBitFieldExtractProfitable(EVT VT, bool IsSigned) const override {
+    // UBFX and SBFX.
+    return VT == MVT::i32 || VT == MVT::i64;
+  }
+
   bool isCheapToSpeculateCttz(Type *) const override {
     return true;
   }

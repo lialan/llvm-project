@@ -1761,10 +1761,30 @@ def bitfield_extract_from_shr_and : GICombineRule<
     [{ return Helper.matchBitfieldExtractFromShrAnd(*${root}, ${info}); }]),
   (apply [{ Helper.applyBuildFn(*${root}, ${info}); }])>;
 
+// The last instruction of a composition of instructions that select, move or
+// extend bits.
+def bitfield_view_frags : GICombinePatFrag<
+  (outs root:$dst), (ins),
+  !listconcat(
+    !foreach(op, [G_AND, G_LSHR, G_ASHR], (pattern (op $dst, $lhs, $rhs))),
+    !foreach(op, [G_TRUNC, G_ZEXT, G_SEXT], (pattern (op $dst, $src))),
+    [(pattern (G_SEXT_INREG $dst, $src, $width)),
+     (pattern (G_UBFX $dst, $src, $pos, $width)),
+     (pattern (G_SBFX $dst, $src, $pos, $width))])>;
+
+// Rewrite a composition of bit fields as the direct form of its bit-field
+// view, e.g. ((x >> 4) & 255) >> 2 & 15 as G_UBFX x, 6, 4.
+def bitfield_view : GICombineRule<
+  (defs root:$dst, build_fn_matchinfo:$info),
+  (match (bitfield_view_frags $dst):$root,
+    [{ return Helper.matchBitFieldView(*${root}, ${info}); }]),
+  (apply [{ Helper.applyBuildFn(*${root}, ${info}); }])>;
+
 def form_bitfield_extract : GICombineGroup<[bitfield_extract_from_sext_inreg,
                                             bitfield_extract_from_and,
                                             bitfield_extract_from_shr,
-                                            bitfield_extract_from_shr_and]>;
+                                            bitfield_extract_from_shr_and,
+                                            bitfield_view]>;
 
 def udiv_by_const : GICombineRule<
   (defs root:$root),

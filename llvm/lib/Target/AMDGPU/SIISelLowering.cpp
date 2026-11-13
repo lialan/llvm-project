@@ -7524,6 +7524,15 @@ LLT SITargetLowering::getPreferredShiftAmountTy(LLT Ty) const {
              : Ty.changeElementSize(32);
 }
 
+bool SITargetLowering::isBitFieldViewTypeDesirable(LLT Ty,
+                                                   bool IsPreLegalize) const {
+  // With real true16 instructions, do not create new 16-bit operations after
+  // the legalizer: a valid rewrite that truncated a shared 32-bit value into a
+  // 16-bit lane was corrupted after register allocation (reduced from
+  // zext_store_div in permute_i8.ll).
+  return IsPreLegalize || !Subtarget->useRealTrue16Insts() || !Ty.isScalar(16);
+}
+
 // Answering this is somewhat tricky and depends on the specific device which
 // have different rates for fma or all f64 operations.
 //

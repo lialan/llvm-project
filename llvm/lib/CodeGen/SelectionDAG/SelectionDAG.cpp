@@ -3339,6 +3339,139 @@ SelectionDAG::getValidMaximumShiftAmount(SDValue V, unsigned Depth) const {
   return getValidMaximumShiftAmount(V, DemandedElts, Depth);
 }
 
+namespace {
+/// The depth-first search of SelectionDAG::forEachBitFieldView.
+class BitFieldViewWalker {
+public:
+  using CallbackT =
+      function_ref<void(const BitFieldView<SDValue> &, ArrayRef<SDValue>)>;
+
+  BitFieldViewWalker(const SelectionDAG &DAG, CallbackT Callback,
+                     unsigned MaxDepth)
+      : DAG(DAG), Callback(Callback), MaxDepth(MaxDepth) {}
+
+  /// Visits the node of \p D, whose field \p F is the field of the root.
+  void visit(SDValue D, const BitField &F);
+
+private:
+  /// Reports the field \p F of \p Src and continues the search from it.
+  void step(SDValue Src, std::optional<BitField> F) {
+    if (!F || !Src.getValueType().isScalarInteger())
+      return;
+    Callback(BitFieldView<SDValue>(*F, Src), Path);
+    visit(Src, *F);
+  }
+
+  const SelectionDAG &DAG;
+  CallbackT Callback;
+  unsigned MaxDepth;
+  unsigned Visits = 0;
+  SmallVector<SDValue, 8> Path;
+};
+} // end anonymous namespace
+
+void BitFieldViewWalker::visit(SDValue D, const BitField &F) {
+  // Each visit may compute known bits, so the search is bounded in depth and
+  // in size; a choice between the operands of a mask doubles it.
+  if (Path.size() >= MaxDepth || Visits >= 4 * MaxDepth)
+    return;
+  ++Visits;
+  const unsigned Bits = D.getValueSizeInBits();
+  const unsigned Opc = D.getOpcode();
+  Path.push_back(D);
+  // D[I] == Src[Off + I] for I < Avail, filled above by Fill.
+  auto Through = [&](SDValue Src, uint64_t Off, uint64_t Avail,
+                     BitFieldExtKind Fill) {
+    EVT SrcVT = Src.getValueType();
+    if (SrcVT.isScalarInteger() && Off + Avail <= SrcVT.getSizeInBits())
+      step(Src, F.stepThrough(Off, Avail, SrcVT.getSizeInBits(), Fill));
+  };
+
+  switch (Opc) {
+  case ISD::SRL:
+  case ISD::SRA:
+  case ISD::SHL: {
+    // A shift by a constant inside the width; a larger amount is poison.
+    std::optional<unsigned> Amt = DAG.getValidShiftAmount(D);
+    if (!Amt)
+      break;
+    SDValue Src = D.getOperand(0);
+    if (Opc == ISD::SRL)
+      Through(Src, *Amt, Bits - *Amt, BitFieldExtKind::Zero);
+    else if (Opc == ISD::SRA)
+      Through(Src, *Amt, Bits - *Amt, BitFieldExtKind::Sign);
+    else if (F.Lo >= *Amt)
+      // The field lies above the zeros that the shift brings in.
+      step(Src, BitField{F.Lo - *Amt, F.Width, F.Ext});
+    break;
+  }
+  case ISD::AND:
+  case ISD::OR:
+  case ISD::XOR:
+    // Either operand may select the field of the other by its known bits.
+    for (unsigned I : {0, 1})
+      step(D.getOperand(1 - I),
+           F.stepThroughMask(Opc == ISD::AND,
+                             DAG.computeKnownBits(D.getOperand(I))));
+    break;
+  case ISD::TRUNCATE:
+    Through(D.getOperand(0), 0, Bits, BitFieldExtKind::None);
+    break;
+  case ISD::ZERO_EXTEND:
+  case ISD::SIGN_EXTEND:
+  case ISD::ANY_EXTEND: {
+    SDValue Src = D.getOperand(0);
+    // The high bits of ANY_EXTEND are unspecified: the field must not read
+    // them.
+    BitFieldExtKind Fill = BitFieldExtKind::None;
+    if (Opc == ISD::ZERO_EXTEND)
+      Fill = BitFieldExtKind::Zero;
+    else if (Opc == ISD::SIGN_EXTEND)
+      Fill = BitFieldExtKind::Sign;
+    Through(Src, 0, Src.getValueSizeInBits(), Fill);
+    break;
+  }
+  case ISD::SIGN_EXTEND_INREG:
+    Through(D.getOperand(0), 0,
+            cast<VTSDNode>(D.getOperand(1))->getVT().getSizeInBits(),
+            BitFieldExtKind::Sign);
+    break;
+  case ISD::EXTRACT_ELEMENT:
+    // D is part Idx of the operand.
+    if (auto *Idx = dyn_cast<ConstantSDNode>(D.getOperand(1)))
+      if (Idx->getAPIntValue().ult(2))
+        Through(D.getOperand(0), Idx->getZExtValue() * Bits, Bits,
+                BitFieldExtKind::None);
+    break;
+  case ISD::BUILD_PAIR: {
+    // A field inside one half is a field of that half.
+    const unsigned Half = Bits / 2;
+    const unsigned Idx = F.Lo / Half;
+    if ((F.Lo + F.Width - 1) / Half == Idx)
+      step(D.getOperand(Idx), BitField{F.Lo - Idx * Half, F.Width, F.Ext});
+    break;
+  }
+  default:
+    // Not FREEZE in particular: a field of a frozen value is not a field of
+    // the value before it was frozen.
+    break;
+  }
+  Path.pop_back();
+}
+
+void SelectionDAG::forEachBitFieldView(
+    SDValue Root,
+    function_ref<void(const BitFieldView<SDValue> &, ArrayRef<SDValue>)>
+        Callback,
+    unsigned MaxDepth) const {
+  EVT VT = Root.getValueType();
+  if (!VT.isScalarInteger())
+    return;
+  BitFieldViewWalker(*this, Callback, MaxDepth)
+      .visit(Root,
+             BitField{0, unsigned(VT.getSizeInBits()), BitFieldExtKind::None});
+}
+
 /// Determine which bits of Op are known to be either zero or one and return
 /// them in Known. For vectors, the known bits are those that are shared by
 /// every vector element.

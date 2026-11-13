@@ -4788,7 +4788,7 @@ define amdgpu_kernel void @v_test_imin_sle_v2i16(ptr addrspace(1) %out, ptr addr
 ; EG-NEXT:    TEX 0 @8
 ; EG-NEXT:    ALU 0, @15, KC0[CB0:0-32], KC1[]
 ; EG-NEXT:    TEX 0 @10
-; EG-NEXT:    ALU 16, @16, KC0[CB0:0-32], KC1[]
+; EG-NEXT:    ALU 13, @16, KC0[CB0:0-32], KC1[]
 ; EG-NEXT:    MEM_RAT_CACHELESS STORE_RAW T0.X, T6.X, 1
 ; EG-NEXT:    CF_END
 ; EG-NEXT:    PAD
@@ -4799,24 +4799,21 @@ define amdgpu_kernel void @v_test_imin_sle_v2i16(ptr addrspace(1) %out, ptr addr
 ; EG-NEXT:    ALU clause starting at 12:
 ; EG-NEXT:     LSHL * T0.W, T0.X, literal.x,
 ; EG-NEXT:    2(2.802597e-45), 0(0.000000e+00)
-; EG-NEXT:     ADD_INT * T0.X, KC0[2].Z, PV.W,
+; EG-NEXT:     ADD_INT * T0.X, KC0[2].W, PV.W,
 ; EG-NEXT:    ALU clause starting at 15:
-; EG-NEXT:     ADD_INT * T6.X, KC0[2].W, T0.W,
+; EG-NEXT:     ADD_INT * T6.X, KC0[2].Z, T0.W,
 ; EG-NEXT:    ALU clause starting at 16:
-; EG-NEXT:     LSHR T1.W, T0.X, literal.x,
-; EG-NEXT:     LSHR * T2.W, T6.X, literal.x,
+; EG-NEXT:     BFE_INT T0.Y, T0.X, 0.0, literal.x,
+; EG-NEXT:     BFE_INT T0.Z, T6.X, 0.0, literal.x, BS:VEC_120/SCL_212
+; EG-NEXT:     ASHR T1.W, T0.X, literal.x,
+; EG-NEXT:     ASHR * T2.W, T6.X, literal.x,
 ; EG-NEXT:    16(2.242078e-44), 0(0.000000e+00)
-; EG-NEXT:     BFE_INT T7.X, PS, 0.0, literal.x,
-; EG-NEXT:     BFE_INT T0.Y, PV.W, 0.0, literal.x,
-; EG-NEXT:     BFE_INT T0.Z, T6.X, 0.0, literal.x,
-; EG-NEXT:     BFE_INT * T1.W, T0.X, 0.0, literal.x, BS:VEC_120/SCL_212
-; EG-NEXT:    16(2.242078e-44), 0(0.000000e+00)
-; EG-NEXT:     MIN_INT T1.W, PV.W, PV.Z,
-; EG-NEXT:     MIN_INT * T2.W, PV.Y, PV.X,
-; EG-NEXT:     LSHL T2.W, PS, literal.x,
-; EG-NEXT:     AND_INT * T1.W, PV.W, literal.y,
-; EG-NEXT:    16(2.242078e-44), 65535(9.183409e-41)
-; EG-NEXT:     OR_INT T0.X, PS, PV.W,
+; EG-NEXT:     MIN_INT T1.W, PS, PV.W,
+; EG-NEXT:     MIN_INT * T2.W, PV.Z, PV.Y,
+; EG-NEXT:     AND_INT T2.W, PS, literal.x,
+; EG-NEXT:     LSHL * T1.W, PV.W, literal.y,
+; EG-NEXT:    65535(9.183409e-41), 16(2.242078e-44)
+; EG-NEXT:     OR_INT T0.X, PV.W, PS,
 ; EG-NEXT:     ADD_INT * T0.W, KC0[2].Y, T0.W,
 ; EG-NEXT:     LSHR * T6.X, PV.W, literal.x,
 ; EG-NEXT:    2(2.802597e-45), 0(0.000000e+00)

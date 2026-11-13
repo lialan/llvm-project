@@ -16,7 +16,9 @@
 
 #include "GISelWorkList.h"
 #include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/CodeGen/BitFieldView.h"
 #include "llvm/CodeGen/Register.h"
 #include "llvm/CodeGenTypes/LowLevelType.h"
 #include "llvm/IR/DebugLoc.h"
@@ -594,6 +596,21 @@ LLVM_ABI Type *getTypeForLLT(LLT Ty, LLVMContext &C);
 /// Returns true if the instruction \p MI is one of the assert
 /// instructions.
 LLVM_ABI bool isAssertMI(const MachineInstr &MI);
+
+/// Calls \p Callback for each bit-field view of the scalar integer \p Root that
+/// looks through at least one instruction: each view V says that
+/// Root == V.Ext(V.Src[V.Lo, V.Lo + V.Width)) when Root is not poison.
+/// \p Path holds the registers that the instructions looked through define,
+/// Root first. The walk looks through at most \p MaxDepth instructions: shifts
+/// by constants, masks (by known bits from \p VT, or by constants if \p VT is
+/// null), truncations, extensions, G_SEXT_INREG, G_UBFX and G_SBFX with
+/// constant operands, G_EXTRACT, G_UNMERGE_VALUES and G_MERGE_VALUES. It never
+/// looks through G_FREEZE.
+LLVM_ABI void forEachBitFieldView(
+    Register Root, const MachineRegisterInfo &MRI, GISelValueTracking *VT,
+    function_ref<void(const BitFieldView<Register> &, ArrayRef<Register>)>
+        Callback,
+    unsigned MaxDepth = 8);
 
 /// An integer-like constant.
 ///

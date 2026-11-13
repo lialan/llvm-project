@@ -170,14 +170,14 @@ define amdgpu_ps i64 @s_shl_i64_sext_i32_overflow(i32 inreg %x) {
 ; GCN-LABEL: s_shl_i64_sext_i32_overflow:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_bitset0_b32 s0, 31
-; GCN-NEXT:    s_ashr_i32 s1, s0, 31
+; GCN-NEXT:    s_mov_b32 s1, 0
 ; GCN-NEXT:    s_lshl_b64 s[0:1], s[0:1], 2
 ; GCN-NEXT:    ; return to shader part epilog
 ;
 ; GFX10PLUS-LABEL: s_shl_i64_sext_i32_overflow:
 ; GFX10PLUS:       ; %bb.0:
+; GFX10PLUS-NEXT:    s_mov_b32 s1, 0
 ; GFX10PLUS-NEXT:    s_bitset0_b32 s0, 31
-; GFX10PLUS-NEXT:    s_ashr_i32 s1, s0, 31
 ; GFX10PLUS-NEXT:    s_lshl_b64 s[0:1], s[0:1], 2
 ; GFX10PLUS-NEXT:    ; return to shader part epilog
   %and = and i32 %x, 2147483647
@@ -191,7 +191,7 @@ define i64 @v_shl_i64_sext_i32_overflow(i32 %x) {
 ; GFX7:       ; %bb.0:
 ; GFX7-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; GFX7-NEXT:    v_and_b32_e32 v0, 0x7fffffff, v0
-; GFX7-NEXT:    v_ashrrev_i32_e32 v1, 31, v0
+; GFX7-NEXT:    v_mov_b32_e32 v1, 0
 ; GFX7-NEXT:    v_lshl_b64 v[0:1], v[0:1], 2
 ; GFX7-NEXT:    s_setpc_b64 s[30:31]
 ;
@@ -199,7 +199,7 @@ define i64 @v_shl_i64_sext_i32_overflow(i32 %x) {
 ; GFX8:       ; %bb.0:
 ; GFX8-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; GFX8-NEXT:    v_and_b32_e32 v0, 0x7fffffff, v0
-; GFX8-NEXT:    v_ashrrev_i32_e32 v1, 31, v0
+; GFX8-NEXT:    v_mov_b32_e32 v1, 0
 ; GFX8-NEXT:    v_lshlrev_b64 v[0:1], 2, v[0:1]
 ; GFX8-NEXT:    s_setpc_b64 s[30:31]
 ;
@@ -207,17 +207,24 @@ define i64 @v_shl_i64_sext_i32_overflow(i32 %x) {
 ; GFX9:       ; %bb.0:
 ; GFX9-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; GFX9-NEXT:    v_and_b32_e32 v0, 0x7fffffff, v0
-; GFX9-NEXT:    v_ashrrev_i32_e32 v1, 31, v0
+; GFX9-NEXT:    v_mov_b32_e32 v1, 0
 ; GFX9-NEXT:    v_lshlrev_b64 v[0:1], 2, v[0:1]
 ; GFX9-NEXT:    s_setpc_b64 s[30:31]
 ;
-; GFX10PLUS-LABEL: v_shl_i64_sext_i32_overflow:
-; GFX10PLUS:       ; %bb.0:
-; GFX10PLUS-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX10PLUS-NEXT:    v_and_b32_e32 v0, 0x7fffffff, v0
-; GFX10PLUS-NEXT:    v_ashrrev_i32_e32 v1, 31, v0
-; GFX10PLUS-NEXT:    v_lshlrev_b64 v[0:1], 2, v[0:1]
-; GFX10PLUS-NEXT:    s_setpc_b64 s[30:31]
+; GFX10-LABEL: v_shl_i64_sext_i32_overflow:
+; GFX10:       ; %bb.0:
+; GFX10-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; GFX10-NEXT:    v_mov_b32_e32 v1, 0
+; GFX10-NEXT:    v_and_b32_e32 v0, 0x7fffffff, v0
+; GFX10-NEXT:    v_lshlrev_b64 v[0:1], 2, v[0:1]
+; GFX10-NEXT:    s_setpc_b64 s[30:31]
+;
+; GFX11-LABEL: v_shl_i64_sext_i32_overflow:
+; GFX11:       ; %bb.0:
+; GFX11-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
+; GFX11-NEXT:    v_dual_mov_b32 v1, 0 :: v_dual_and_b32 v0, 0x7fffffff, v0
+; GFX11-NEXT:    v_lshlrev_b64 v[0:1], 2, v[0:1]
+; GFX11-NEXT:    s_setpc_b64 s[30:31]
   %and = and i32 %x, 2147483647
   %ext = sext i32 %and to i64
   %shl = shl i64 %ext, 2

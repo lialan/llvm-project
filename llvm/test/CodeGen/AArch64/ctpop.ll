@@ -531,7 +531,6 @@ define i16 @i16_mask(i16 %x) {
 ; CHECK-GI-LABEL: i16_mask:
 ; CHECK-GI:       // %bb.0: // %entry
 ; CHECK-GI-NEXT:    and w8, w0, #0xff
-; CHECK-GI-NEXT:    and x8, x8, #0xffff
 ; CHECK-GI-NEXT:    fmov d0, x8
 ; CHECK-GI-NEXT:    cnt v0.8b, v0.8b
 ; CHECK-GI-NEXT:    uaddlv h0, v0.8b

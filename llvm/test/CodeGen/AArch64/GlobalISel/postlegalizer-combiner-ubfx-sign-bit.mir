@@ -41,11 +41,9 @@ body:             |
     ; CHECK: liveins: $w0
     ; CHECK-NEXT: {{  $}}
     ; CHECK-NEXT: %x:_(i32) = COPY $w0
-    ; CHECK-NEXT: %sh:_(i64) = G_CONSTANT i64 15
-    ; CHECK-NEXT: %ashr:_(i32) = G_ASHR %x, %sh(i64)
-    ; CHECK-NEXT: %lsb:_(i32) = G_CONSTANT i32 15
     ; CHECK-NEXT: %one:_(i32) = G_CONSTANT i32 1
-    ; CHECK-NEXT: %ubfx:_(i32) = G_UBFX %ashr, %lsb(i32), %one
+    ; CHECK-NEXT: [[C:%[0-9]+]]:_(i32) = G_CONSTANT i32 30
+    ; CHECK-NEXT: %ubfx:_(i32) = G_UBFX %x, [[C]](i32), %one
     ; CHECK-NEXT: $w0 = COPY %ubfx(i32)
     ; CHECK-NEXT: RET_ReallyLR implicit $w0
     %x:_(i32) = COPY $w0
@@ -98,10 +96,8 @@ body:             |
     ; CHECK: liveins: $x0
     ; CHECK-NEXT: {{  $}}
     ; CHECK-NEXT: %x:_(i64) = COPY $x0
-    ; CHECK-NEXT: %sh:_(i64) = G_CONSTANT i64 32
-    ; CHECK-NEXT: %ashr:_(i64) = G_ASHR %x, %sh(i64)
     ; CHECK-NEXT: [[C:%[0-9]+]]:_(i64) = G_CONSTANT i64 63
-    ; CHECK-NEXT: %ubfx:_(i64) = G_LSHR %ashr, [[C]](i64)
+    ; CHECK-NEXT: %ubfx:_(i64) = G_LSHR %x, [[C]](i64)
     ; CHECK-NEXT: $x0 = COPY %ubfx(i64)
     ; CHECK-NEXT: RET_ReallyLR implicit $x0
     %x:_(i64) = COPY $x0

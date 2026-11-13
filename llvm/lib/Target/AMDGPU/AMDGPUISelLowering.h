@@ -234,6 +234,13 @@ public:
                                     unsigned NumElem,
                                     unsigned AS) const override;
   bool aggressivelyPreferBuildVectorSources(EVT VecVT) const override;
+
+  bool isBitFieldExtractProfitable(EVT VT, bool IsSigned) const override {
+    // BFE_U32 and BFE_I32. A 64-bit field of a VGPR takes several
+    // instructions.
+    return VT == MVT::i32;
+  }
+
   bool isCheapToSpeculateCttz(Type *Ty) const override;
   bool isCheapToSpeculateCtlz(Type *Ty) const override;
 

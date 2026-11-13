@@ -179,9 +179,7 @@ define i32 @hadds_const_zero(i32 %src1) {
 ;
 ; CHECK-GI-LABEL: hadds_const_zero:
 ; CHECK-GI:       // %bb.0:
-; CHECK-GI-NEXT:    // kill: def $w0 killed $w0 def $x0
-; CHECK-GI-NEXT:    sbfx x0, x0, #1, #31
-; CHECK-GI-NEXT:    // kill: def $w0 killed $w0 killed $x0
+; CHECK-GI-NEXT:    asr w0, w0, #1
 ; CHECK-GI-NEXT:    ret
   %zextsrc1 = sext i32 %src1 to i64
   %add = add i64 0, %zextsrc1

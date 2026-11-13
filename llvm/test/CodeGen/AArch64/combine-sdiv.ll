@@ -1251,35 +1251,21 @@ define <4 x i1> @boolvec_sdiv(<4 x i1> %x, <4 x i1> %y) {
 }
 
 define i32 @combine_sdiv_two(i32 %x) {
-; CHECK-SD-LABEL: combine_sdiv_two:
-; CHECK-SD:       // %bb.0:
-; CHECK-SD-NEXT:    add w8, w0, w0, lsr #31
-; CHECK-SD-NEXT:    asr w0, w8, #1
-; CHECK-SD-NEXT:    ret
-;
-; CHECK-GI-LABEL: combine_sdiv_two:
-; CHECK-GI:       // %bb.0:
-; CHECK-GI-NEXT:    asr w8, w0, #31
-; CHECK-GI-NEXT:    add w8, w0, w8, lsr #31
-; CHECK-GI-NEXT:    asr w0, w8, #1
-; CHECK-GI-NEXT:    ret
+; CHECK-LABEL: combine_sdiv_two:
+; CHECK:       // %bb.0:
+; CHECK-NEXT:    add w8, w0, w0, lsr #31
+; CHECK-NEXT:    asr w0, w8, #1
+; CHECK-NEXT:    ret
   %1 = sdiv i32 %x, 2
   ret i32 %1
 }
 
 define i32 @combine_sdiv_negtwo(i32 %x) {
-; CHECK-SD-LABEL: combine_sdiv_negtwo:
-; CHECK-SD:       // %bb.0:
-; CHECK-SD-NEXT:    add w8, w0, w0, lsr #31
-; CHECK-SD-NEXT:    neg w0, w8, asr #1
-; CHECK-SD-NEXT:    ret
-;
-; CHECK-GI-LABEL: combine_sdiv_negtwo:
-; CHECK-GI:       // %bb.0:
-; CHECK-GI-NEXT:    asr w8, w0, #31
-; CHECK-GI-NEXT:    add w8, w0, w8, lsr #31
-; CHECK-GI-NEXT:    neg w0, w8, asr #1
-; CHECK-GI-NEXT:    ret
+; CHECK-LABEL: combine_sdiv_negtwo:
+; CHECK:       // %bb.0:
+; CHECK-NEXT:    add w8, w0, w0, lsr #31
+; CHECK-NEXT:    neg w0, w8, asr #1
+; CHECK-NEXT:    ret
   %1 = sdiv i32 %x, -2
   ret i32 %1
 }
@@ -1295,9 +1281,9 @@ define i8 @combine_i8_sdiv_pow2(i8 %x) {
 ;
 ; CHECK-GI-LABEL: combine_i8_sdiv_pow2:
 ; CHECK-GI:       // %bb.0:
-; CHECK-GI-NEXT:    sxtb w8, w0
-; CHECK-GI-NEXT:    ubfx w8, w8, #7, #8
-; CHECK-GI-NEXT:    add w8, w0, w8, lsr #4
+; CHECK-GI-NEXT:    sbfx w8, w0, #7, #1
+; CHECK-GI-NEXT:    ubfx w8, w8, #4, #4
+; CHECK-GI-NEXT:    add w8, w0, w8
 ; CHECK-GI-NEXT:    sbfx w0, w8, #4, #4
 ; CHECK-GI-NEXT:    ret
   %1 = sdiv i8 %x, 16
@@ -1316,11 +1302,11 @@ define i8 @combine_i8_sdiv_negpow2(i8 %x) {
 ;
 ; CHECK-GI-LABEL: combine_i8_sdiv_negpow2:
 ; CHECK-GI:       // %bb.0:
-; CHECK-GI-NEXT:    sxtb w8, w0
-; CHECK-GI-NEXT:    ubfx w8, w8, #7, #8
-; CHECK-GI-NEXT:    add w8, w0, w8, lsr #2
-; CHECK-GI-NEXT:    sxtb w8, w8
-; CHECK-GI-NEXT:    neg w0, w8, asr #6
+; CHECK-GI-NEXT:    sbfx w8, w0, #7, #1
+; CHECK-GI-NEXT:    ubfx w8, w8, #2, #6
+; CHECK-GI-NEXT:    add w8, w0, w8
+; CHECK-GI-NEXT:    sbfx w8, w8, #6, #2
+; CHECK-GI-NEXT:    neg w0, w8
 ; CHECK-GI-NEXT:    ret
   %1 = sdiv i8 %x, -64
   ret i8 %1
@@ -1337,9 +1323,9 @@ define i16 @combine_i16_sdiv_pow2(i16 %x) {
 ;
 ; CHECK-GI-LABEL: combine_i16_sdiv_pow2:
 ; CHECK-GI:       // %bb.0:
-; CHECK-GI-NEXT:    sxth w8, w0
-; CHECK-GI-NEXT:    ubfx w8, w8, #15, #16
-; CHECK-GI-NEXT:    add w8, w0, w8, lsr #12
+; CHECK-GI-NEXT:    sbfx w8, w0, #15, #1
+; CHECK-GI-NEXT:    ubfx w8, w8, #12, #4
+; CHECK-GI-NEXT:    add w8, w0, w8
 ; CHECK-GI-NEXT:    sbfx w0, w8, #4, #12
 ; CHECK-GI-NEXT:    ret
   %1 = sdiv i16 %x, 16
@@ -1358,11 +1344,11 @@ define i16 @combine_i16_sdiv_negpow2(i16 %x) {
 ;
 ; CHECK-GI-LABEL: combine_i16_sdiv_negpow2:
 ; CHECK-GI:       // %bb.0:
-; CHECK-GI-NEXT:    sxth w8, w0
-; CHECK-GI-NEXT:    ubfx w8, w8, #15, #16
-; CHECK-GI-NEXT:    add w8, w0, w8, lsr #8
-; CHECK-GI-NEXT:    sxth w8, w8
-; CHECK-GI-NEXT:    neg w0, w8, asr #8
+; CHECK-GI-NEXT:    sbfx w8, w0, #15, #1
+; CHECK-GI-NEXT:    ubfx w8, w8, #8, #8
+; CHECK-GI-NEXT:    add w8, w0, w8
+; CHECK-GI-NEXT:    sbfx w8, w8, #8, #8
+; CHECK-GI-NEXT:    neg w0, w8
 ; CHECK-GI-NEXT:    ret
   %1 = sdiv i16 %x, -256
   ret i16 %1
@@ -1465,9 +1451,9 @@ define i5 @combine_i5_sdiv_const7(i5 %x) {
 ; CHECK-GI-NEXT:    sbfx w8, w8, #0, #5
 ; CHECK-GI-NEXT:    mul w8, w9, w8
 ; CHECK-GI-NEXT:    add w8, w0, w8, asr #5
-; CHECK-GI-NEXT:    sbfx w8, w8, #0, #5
-; CHECK-GI-NEXT:    asr w8, w8, #2
-; CHECK-GI-NEXT:    add w0, w8, w8, lsr #31
+; CHECK-GI-NEXT:    sbfx w8, w8, #2, #3
+; CHECK-GI-NEXT:    ubfx w9, w8, #4, #1
+; CHECK-GI-NEXT:    add w0, w8, w9
 ; CHECK-GI-NEXT:    ret
   %1 = sdiv i5 %x, 7
   ret i5 %1
@@ -1484,11 +1470,10 @@ define i5 @combine_i5_sdiv_const100(i5 %x) {
 ;
 ; CHECK-GI-LABEL: combine_i5_sdiv_const100:
 ; CHECK-GI:       // %bb.0:
-; CHECK-GI-NEXT:    sbfx w8, w0, #0, #5
-; CHECK-GI-NEXT:    ubfx w8, w8, #4, #5
-; CHECK-GI-NEXT:    add w8, w0, w8, lsr #3
-; CHECK-GI-NEXT:    sbfx w8, w8, #0, #5
-; CHECK-GI-NEXT:    asr w0, w8, #2
+; CHECK-GI-NEXT:    sbfx w8, w0, #4, #1
+; CHECK-GI-NEXT:    ubfx w8, w8, #3, #2
+; CHECK-GI-NEXT:    add w8, w0, w8
+; CHECK-GI-NEXT:    sbfx w0, w8, #2, #3
 ; CHECK-GI-NEXT:    ret
   %1 = sdiv i5 %x, 100
   ret i5 %1
@@ -1513,7 +1498,8 @@ define i8 @combine_i8_sdiv_const7(i8 %x) {
 ; CHECK-GI-NEXT:    mul w8, w8, w9
 ; CHECK-GI-NEXT:    add w8, w0, w8, asr #8
 ; CHECK-GI-NEXT:    sbfx w8, w8, #2, #6
-; CHECK-GI-NEXT:    add w0, w8, w8, lsr #31
+; CHECK-GI-NEXT:    ubfx w9, w8, #7, #1
+; CHECK-GI-NEXT:    add w0, w8, w9
 ; CHECK-GI-NEXT:    ret
   %1 = sdiv i8 %x, 7
   ret i8 %1
@@ -1627,8 +1613,7 @@ define i32 @combine_i32_sdiv_const100(i32 %x) {
 ; CHECK-GI-NEXT:    mov w8, #34079 // =0x851f
 ; CHECK-GI-NEXT:    movk w8, #20971, lsl #16
 ; CHECK-GI-NEXT:    smull x8, w0, w8
-; CHECK-GI-NEXT:    asr x8, x8, #32
-; CHECK-GI-NEXT:    asr w8, w8, #5
+; CHECK-GI-NEXT:    asr x8, x8, #37
 ; CHECK-GI-NEXT:    add w0, w8, w8, lsr #31
 ; CHECK-GI-NEXT:    ret
   %1 = sdiv i32 %x, 100

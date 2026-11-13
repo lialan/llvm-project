@@ -23,7 +23,8 @@ define i8 @si8_7(i8 %a, i8 %b) {
 ; CHECK-GI-NEXT:    mul w8, w8, w9
 ; CHECK-GI-NEXT:    add w8, w0, w8, asr #8
 ; CHECK-GI-NEXT:    sbfx w8, w8, #2, #6
-; CHECK-GI-NEXT:    add w8, w8, w8, lsr #31
+; CHECK-GI-NEXT:    ubfx w9, w8, #7, #1
+; CHECK-GI-NEXT:    add w8, w8, w9
 ; CHECK-GI-NEXT:    sub w8, w8, w8, lsl #3
 ; CHECK-GI-NEXT:    add w0, w0, w8
 ; CHECK-GI-NEXT:    ret
@@ -278,8 +279,7 @@ define i32 @si32_100(i32 %a, i32 %b) {
 ; CHECK-GI-NEXT:    mov w9, #-100 // =0xffffff9c
 ; CHECK-GI-NEXT:    movk w8, #20971, lsl #16
 ; CHECK-GI-NEXT:    smull x8, w0, w8
-; CHECK-GI-NEXT:    asr x8, x8, #32
-; CHECK-GI-NEXT:    asr w8, w8, #5
+; CHECK-GI-NEXT:    asr x8, x8, #37
 ; CHECK-GI-NEXT:    add w8, w8, w8, lsr #31
 ; CHECK-GI-NEXT:    madd w0, w8, w9, w0
 ; CHECK-GI-NEXT:    ret

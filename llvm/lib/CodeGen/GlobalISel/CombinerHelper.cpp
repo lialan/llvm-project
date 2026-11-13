@@ -4822,6 +4822,192 @@ bool CombinerHelper::matchBitfieldExtractFromShrAnd(
   return true;
 }
 
+namespace {
+/// The bits [Pos, Pos + Width) of Src, zero- or sign-extended.
+struct BitFieldExtract {
+  Register Src;
+  unsigned Pos;
+  unsigned Width;
+  bool Signed;
+};
+} // namespace
+
+/// View a right shift by a constant, a G_UBFX/G_SBFX with constant operands or
+/// a G_SEXT_INREG as an extract of its first operand.
+static std::optional<BitFieldExtract>
+getBitFieldExtract(const MachineInstr &MI, const MachineRegisterInfo &MRI) {
+  const unsigned Opcode = MI.getOpcode();
+  if (Opcode != TargetOpcode::G_LSHR && Opcode != TargetOpcode::G_ASHR &&
+      Opcode != TargetOpcode::G_UBFX && Opcode != TargetOpcode::G_SBFX &&
+      Opcode != TargetOpcode::G_SEXT_INREG)
+    return std::nullopt;
+  const unsigned BW =
+      MRI.getType(MI.getOperand(0).getReg()).getScalarSizeInBits();
+  auto getImm = [&](unsigned OpNo) -> std::optional<unsigned> {
+    std::optional<APInt> C =
+        getIConstantVRegVal(MI.getOperand(OpNo).getReg(), MRI);
+    if (!C || C->uge(BW))
+      return std::nullopt;
+    return C->getZExtValue();
+  };
+  Register Src = MI.getOperand(1).getReg();
+  switch (MI.getOpcode()) {
+  case TargetOpcode::G_LSHR:
+  case TargetOpcode::G_ASHR: {
+    std::optional<unsigned> Amt = getImm(2);
+    if (!Amt)
+      return std::nullopt;
+    return BitFieldExtract{Src, *Amt, BW - *Amt,
+                           MI.getOpcode() == TargetOpcode::G_ASHR};
+  }
+  case TargetOpcode::G_UBFX:
+  case TargetOpcode::G_SBFX: {
+    std::optional<APInt> Width =
+        getIConstantVRegVal(MI.getOperand(3).getReg(), MRI);
+    std::optional<unsigned> Pos = getImm(2);
+    if (!Pos || !Width || Width->isZero() || Width->ugt(BW - *Pos))
+      return std::nullopt;
+    return BitFieldExtract{Src, *Pos, unsigned(Width->getZExtValue()),
+                           MI.getOpcode() == TargetOpcode::G_SBFX};
+  }
+  case TargetOpcode::G_SEXT_INREG:
+    return BitFieldExtract{Src, 0, unsigned(MI.getOperand(2).getImm()), true};
+  default:
+    llvm_unreachable("Unexpected opcode");
+  }
+}
+
+bool CombinerHelper::matchBitfieldExtractOfExtract(MachineInstr &MI,
+                                                   BuildFnTy &MatchInfo) const {
+  Register Dst = MI.getOperand(0).getReg();
+  LLT Ty = MRI.getType(Dst);
+  if (!Ty.isScalar())
+    return false;
+  std::optional<BitFieldExtract> Field = getBitFieldExtract(MI, MRI);
+  if (!Field)
+    return false;
+  const unsigned BW = Ty.getSizeInBits();
+  bool OnlyShifts = MI.getOpcode() == TargetOpcode::G_LSHR ||
+                    MI.getOpcode() == TargetOpcode::G_ASHR;
+  unsigned NumFolded = 0;
+  // Fold up to two one-use sources into the field.
+  for (; NumFolded != 2; ++NumFolded) {
+    if (!MRI.hasOneNonDBGUse(Field->Src))
+      break;
+    const MachineInstr &Def = *MRI.getVRegDef(Field->Src);
+    if (Def.getOpcode() == TargetOpcode::G_SHL) {
+      // A field at or above the shift amount is a field of the shifted value.
+      std::optional<APInt> Amt =
+          getIConstantVRegVal(Def.getOperand(2).getReg(), MRI);
+      if (!Amt || Amt->ugt(Field->Pos))
+        break;
+      Field->Pos -= Amt->getZExtValue();
+      Field->Src = Def.getOperand(1).getReg();
+      continue;
+    }
+    std::optional<BitFieldExtract> Inner = getBitFieldExtract(Def, MRI);
+    if (!Inner)
+      break;
+    OnlyShifts &= Def.getOpcode() == TargetOpcode::G_LSHR ||
+                  Def.getOpcode() == TargetOpcode::G_ASHR;
+    if (Field->Pos + Field->Width > Inner->Width) {
+      // The field reads the extension of the inner field. That is the inner
+      // field's fill unless the inner fill is a copy of its sign bit and the
+      // outer field is zero-extended.
+      if (Field->Pos >= Inner->Width || (Inner->Signed && !Field->Signed))
+        break;
+      Field->Width = Inner->Width - Field->Pos;
+      Field->Signed = Inner->Signed;
+    }
+    Field->Pos += Inner->Pos;
+    Field->Src = Inner->Src;
+  }
+  // Chains of shifts are left to shift_immed_chain and
+  // bitfield_extract_from_shr.
+  if (!NumFolded || OnlyShifts)
+    return false;
+
+  const Register Src = Field->Src;
+  const unsigned Pos = Field->Pos, Width = Field->Width;
+  const bool Signed = Field->Signed;
+  const TargetLowering &TLI = getTargetLowering();
+  if (Pos + Width == BW) {
+    // The field extends to the top bit: a right shift, or the value itself.
+    const unsigned Opc = Signed ? TargetOpcode::G_ASHR : TargetOpcode::G_LSHR;
+    LLT AmtTy = TLI.getPreferredShiftAmountTy(Ty);
+    if (Pos && (!isLegalOrBeforeLegalizer({Opc, {Ty, AmtTy}}) ||
+                !isConstantLegalOrBeforeLegalizer(AmtTy)))
+      return false;
+    MatchInfo = [=](MachineIRBuilder &B) {
+      if (Pos)
+        B.buildInstr(Opc, {Dst}, {Src, B.buildConstant(AmtTy, Pos)});
+      else
+        B.buildCopy(Dst, Src);
+    };
+    return true;
+  }
+  if (Pos == 0 && Signed) {
+    if (!isLegalOrBeforeLegalizer({TargetOpcode::G_SEXT_INREG, {Ty}}))
+      return false;
+    MatchInfo = [=](MachineIRBuilder &B) { B.buildSExtInReg(Dst, Src, Width); };
+    return true;
+  }
+  if (Pos == 0) {
+    if (!isLegalOrBeforeLegalizer({TargetOpcode::G_AND, {Ty}}) ||
+        !isConstantLegalOrBeforeLegalizer(Ty))
+      return false;
+    MatchInfo = [=](MachineIRBuilder &B) {
+      B.buildAnd(Dst, Src,
+                 B.buildConstant(Ty, APInt::getLowBitsSet(BW, Width)));
+    };
+    return true;
+  }
+  const unsigned Opc = Signed ? TargetOpcode::G_SBFX : TargetOpcode::G_UBFX;
+  LLT ExtractTy = TLI.getPreferredShiftAmountTy(Ty);
+  if (!LI || !LI->isLegalOrCustom({Opc, {Ty, ExtractTy}}))
+    return false;
+  MatchInfo = [=](MachineIRBuilder &B) {
+    B.buildInstr(Opc, {Dst},
+                 {Src, B.buildConstant(ExtractTy, Pos),
+                  B.buildConstant(ExtractTy, Width)});
+  };
+  return true;
+}
+
+bool CombinerHelper::matchBitfieldExtractFromAndOfTrunc(
+    MachineInstr &MI, BuildFnTy &MatchInfo) const {
+  // (and (trunc (lshr X, C)), Mask) -> (trunc (ubfx X, C, W)) if the field
+  // [C, C + W) of X crosses the truncated width. A field below it is better
+  // extracted after narrowing the shift.
+  Register Dst = MI.getOperand(0).getReg();
+  LLT Ty = MRI.getType(Dst);
+  Register X;
+  APInt Amt, Mask;
+  if (!Ty.isScalar() ||
+      !mi_match(
+          Dst, MRI,
+          m_GAnd(m_OneUse(m_GTrunc(m_OneUse(m_GLShr(m_Reg(X), m_ICst(Amt))))),
+                 m_ICst(Mask))))
+    return false;
+  LLT WideTy = MRI.getType(X);
+  const unsigned BW = Ty.getSizeInBits(), WideBW = WideTy.getSizeInBits();
+  if (!Mask.isMask() || Amt.uge(BW))
+    return false;
+  const unsigned Pos = Amt.getZExtValue(), Width = Mask.countr_one();
+  if (Pos + Width <= BW || Pos + Width > WideBW)
+    return false;
+  LLT ExtractTy = getTargetLowering().getPreferredShiftAmountTy(WideTy);
+  if (!LI || !LI->isLegalOrCustom({TargetOpcode::G_UBFX, {WideTy, ExtractTy}}))
+    return false;
+  MatchInfo = [=](MachineIRBuilder &B) {
+    auto Ubfx = B.buildInstr(TargetOpcode::G_UBFX, {WideTy},
+                             {X, B.buildConstant(ExtractTy, Pos),
+                              B.buildConstant(ExtractTy, Width)});
+    B.buildTrunc(Dst, Ubfx);
+  };
+  return true;
+}
+
 bool CombinerHelper::reassociationCanBreakAddressingModePattern(
     MachineInstr &MI) const {
   auto &PtrAdd = cast<GPtrAdd>(MI);

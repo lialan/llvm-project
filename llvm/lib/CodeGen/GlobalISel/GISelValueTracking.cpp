@@ -2635,6 +2635,14 @@ unsigned GISelValueTracking::computeNumSignBits(Register R,
     return std::max(computeNumSignBits(Src, DemandedElts, Depth + 1),
                     InRegBits);
   }
+  case TargetOpcode::G_SBFX: {
+    // The bits above the field are copies of its sign bit.
+    std::optional<APInt> Width =
+        getIConstantVRegVal(MI.getOperand(3).getReg(), MRI);
+    if (!Width || Width->isZero() || Width->ugt(TyBits))
+      break;
+    return TyBits - Width->getZExtValue() + 1;
+  }
   case TargetOpcode::G_LOAD: {
     GLoad *Ld = cast<GLoad>(&MI);
     if (DemandedElts != 1 || !getDataLayout().isLittleEndian())

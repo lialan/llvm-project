@@ -219,13 +219,10 @@ define <3 x i16> @sext_v3i8_v3i16(<3 x i8> %a) {
 ;
 ; CHECK-GI-LABEL: sext_v3i8_v3i16:
 ; CHECK-GI:       // %bb.0: // %entry
-; CHECK-GI-NEXT:    lsl w8, w0, #8
-; CHECK-GI-NEXT:    lsl w9, w1, #8
-; CHECK-GI-NEXT:    sbfx w8, w8, #8, #8
-; CHECK-GI-NEXT:    sbfx w9, w9, #8, #8
+; CHECK-GI-NEXT:    sxtb w8, w0
+; CHECK-GI-NEXT:    sxtb w9, w1
 ; CHECK-GI-NEXT:    fmov s0, w8
-; CHECK-GI-NEXT:    lsl w8, w2, #8
-; CHECK-GI-NEXT:    sbfx w8, w8, #8, #8
+; CHECK-GI-NEXT:    sxtb w8, w2
 ; CHECK-GI-NEXT:    mov v0.h[1], w9
 ; CHECK-GI-NEXT:    mov v0.h[2], w8
 ; CHECK-GI-NEXT:    // kill: def $d0 killed $d0 killed $q0
@@ -378,13 +375,10 @@ define <3 x i16> @sext_v3i10_v3i16(<3 x i10> %a) {
 ;
 ; CHECK-GI-LABEL: sext_v3i10_v3i16:
 ; CHECK-GI:       // %bb.0: // %entry
-; CHECK-GI-NEXT:    lsl w8, w0, #6
-; CHECK-GI-NEXT:    lsl w9, w1, #6
-; CHECK-GI-NEXT:    sbfx w8, w8, #6, #10
-; CHECK-GI-NEXT:    sbfx w9, w9, #6, #10
+; CHECK-GI-NEXT:    sbfx w8, w0, #0, #10
+; CHECK-GI-NEXT:    sbfx w9, w1, #0, #10
 ; CHECK-GI-NEXT:    fmov s0, w8
-; CHECK-GI-NEXT:    lsl w8, w2, #6
-; CHECK-GI-NEXT:    sbfx w8, w8, #6, #10
+; CHECK-GI-NEXT:    sbfx w8, w2, #0, #10
 ; CHECK-GI-NEXT:    mov v0.h[1], w9
 ; CHECK-GI-NEXT:    mov v0.h[2], w8
 ; CHECK-GI-NEXT:    // kill: def $d0 killed $d0 killed $q0

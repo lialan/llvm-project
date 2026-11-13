@@ -73,15 +73,13 @@ define i24 @v_sext_inreg_i24_12(i24 %value) {
 ; GCN-LABEL: v_sext_inreg_i24_12:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GCN-NEXT:    v_bfe_i32 v0, v0, 0, 24
-; GCN-NEXT:    v_ashrrev_i32_e32 v0, 12, v0
+; GCN-NEXT:    v_bfe_i32 v0, v0, 12, 12
 ; GCN-NEXT:    s_setpc_b64 s[30:31]
 ;
 ; GFX10PLUS-LABEL: v_sext_inreg_i24_12:
 ; GFX10PLUS:       ; %bb.0:
 ; GFX10PLUS-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GFX10PLUS-NEXT:    v_bfe_i32 v0, v0, 0, 24
-; GFX10PLUS-NEXT:    v_ashrrev_i32_e32 v0, 12, v0
+; GFX10PLUS-NEXT:    v_bfe_i32 v0, v0, 12, 12
 ; GFX10PLUS-NEXT:    s_setpc_b64 s[30:31]
   %shl = shl i24 %value, 12
   %ashr = ashr i24 %value, 12

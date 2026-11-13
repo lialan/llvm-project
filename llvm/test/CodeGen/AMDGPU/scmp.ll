@@ -368,8 +368,8 @@ define <2 x i32> @scmp_v2i16(<2 x i16> %a, <2 x i16> %b) {
 ; GFX7-GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; GFX7-GISEL-NEXT:    v_bfe_i32 v2, v0, 0, 16
 ; GFX7-GISEL-NEXT:    v_bfe_i32 v3, v1, 0, 16
-; GFX7-GISEL-NEXT:    v_bfe_i32 v0, v0, 16, 16
-; GFX7-GISEL-NEXT:    v_bfe_i32 v1, v1, 16, 16
+; GFX7-GISEL-NEXT:    v_ashrrev_i32_e32 v0, 16, v0
+; GFX7-GISEL-NEXT:    v_ashrrev_i32_e32 v1, 16, v1
 ; GFX7-GISEL-NEXT:    v_cmp_gt_i32_e32 vcc, v2, v3
 ; GFX7-GISEL-NEXT:    v_cndmask_b32_e64 v4, 0, 1, vcc
 ; GFX7-GISEL-NEXT:    v_cmp_gt_i32_e32 vcc, v0, v1
@@ -1048,8 +1048,8 @@ define <2 x i32> @scmp_v2i16_uniform(<2 x i16> inreg %a, <2 x i16> inreg %b) {
 ; GFX7-GISEL-NEXT:    s_sext_i32_i16 s5, s17
 ; GFX7-GISEL-NEXT:    s_cmp_gt_i32 s4, s5
 ; GFX7-GISEL-NEXT:    s_cselect_b32 s6, 1, 0
-; GFX7-GISEL-NEXT:    s_bfe_i32 s7, s16, 0x100010
-; GFX7-GISEL-NEXT:    s_bfe_i32 s8, s17, 0x100010
+; GFX7-GISEL-NEXT:    s_ashr_i32 s7, s16, 16
+; GFX7-GISEL-NEXT:    s_ashr_i32 s8, s17, 16
 ; GFX7-GISEL-NEXT:    s_cmp_gt_i32 s7, s8
 ; GFX7-GISEL-NEXT:    s_cselect_b32 s9, 1, 0
 ; GFX7-GISEL-NEXT:    s_cmp_lt_i32 s4, s5

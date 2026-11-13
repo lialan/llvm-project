@@ -712,6 +712,17 @@ public:
   LLVM_ABI bool matchBitfieldExtractFromShrAnd(MachineInstr &MI,
                                                BuildFnTy &MatchInfo) const;
 
+  /// Match an extract (a right shift by a constant, G_UBFX, G_SBFX or
+  /// G_SEXT_INREG) of another extract or of a left shift, and form one
+  /// extract, e.g. ashr (sext_inreg x, n), k -> sbfx x, k, n - k.
+  LLVM_ABI bool matchBitfieldExtractOfExtract(MachineInstr &MI,
+                                              BuildFnTy &MatchInfo) const;
+
+  /// Match: and (trunc (lshr x, k)), mask -> trunc (ubfx x, k, width) where
+  /// the field crosses the truncated width.
+  LLVM_ABI bool matchBitfieldExtractFromAndOfTrunc(MachineInstr &MI,
+                                                   BuildFnTy &MatchInfo) const;
+
   // Helpers for reassociation:
   LLVM_ABI bool matchReassocConstantInnerRHS(GPtrAdd &MI, MachineInstr *RHS,
                                              BuildFnTy &MatchInfo) const;

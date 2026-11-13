@@ -601,7 +601,7 @@ define <2 x half> @test_ldexp_v2f16_v2i16(<2 x half> %a, <2 x i16> %b) {
 ; GFX6-GISEL-NEXT:    v_lshrrev_b32_e32 v0, 16, v0
 ; GFX6-GISEL-NEXT:    v_cvt_f32_f16_e32 v0, v0
 ; GFX6-GISEL-NEXT:    v_bfe_i32 v3, v1, 0, 16
-; GFX6-GISEL-NEXT:    v_bfe_i32 v1, v1, 16, 16
+; GFX6-GISEL-NEXT:    v_ashrrev_i32_e32 v1, 16, v1
 ; GFX6-GISEL-NEXT:    v_ldexp_f32_e32 v2, v2, v3
 ; GFX6-GISEL-NEXT:    v_ldexp_f32_e32 v0, v0, v1
 ; GFX6-GISEL-NEXT:    v_cvt_f16_f32_e32 v0, v0
@@ -886,7 +886,7 @@ define <3 x half> @test_ldexp_v3f16_v3i16(<3 x half> %a, <3 x i16> %b) {
 ; GFX6-GISEL-NEXT:    v_cvt_f32_f16_e32 v0, v0
 ; GFX6-GISEL-NEXT:    v_cvt_f32_f16_e32 v1, v1
 ; GFX6-GISEL-NEXT:    v_bfe_i32 v5, v2, 0, 16
-; GFX6-GISEL-NEXT:    v_bfe_i32 v2, v2, 16, 16
+; GFX6-GISEL-NEXT:    v_ashrrev_i32_e32 v2, 16, v2
 ; GFX6-GISEL-NEXT:    v_ldexp_f32_e32 v0, v0, v2
 ; GFX6-GISEL-NEXT:    v_ldexp_f32_e32 v4, v4, v5
 ; GFX6-GISEL-NEXT:    v_cvt_f16_f32_e32 v0, v0
@@ -1241,13 +1241,13 @@ define <4 x half> @test_ldexp_v4f16_v4i16(<4 x half> %a, <4 x i16> %b) {
 ; GFX6-GISEL-NEXT:    v_lshrrev_b32_e32 v5, 16, v1
 ; GFX6-GISEL-NEXT:    v_cvt_f32_f16_e32 v5, v5
 ; GFX6-GISEL-NEXT:    v_bfe_i32 v6, v2, 0, 16
-; GFX6-GISEL-NEXT:    v_bfe_i32 v2, v2, 16, 16
+; GFX6-GISEL-NEXT:    v_ashrrev_i32_e32 v2, 16, v2
 ; GFX6-GISEL-NEXT:    v_cvt_f32_f16_e32 v1, v1
 ; GFX6-GISEL-NEXT:    v_ldexp_f32_e32 v2, v4, v2
 ; GFX6-GISEL-NEXT:    v_ldexp_f32_e32 v0, v0, v6
 ; GFX6-GISEL-NEXT:    v_cvt_f16_f32_e32 v2, v2
 ; GFX6-GISEL-NEXT:    v_bfe_i32 v4, v3, 0, 16
-; GFX6-GISEL-NEXT:    v_bfe_i32 v3, v3, 16, 16
+; GFX6-GISEL-NEXT:    v_ashrrev_i32_e32 v3, 16, v3
 ; GFX6-GISEL-NEXT:    v_cvt_f16_f32_e32 v0, v0
 ; GFX6-GISEL-NEXT:    v_ldexp_f32_e32 v3, v5, v3
 ; GFX6-GISEL-NEXT:    v_ldexp_f32_e32 v1, v1, v4

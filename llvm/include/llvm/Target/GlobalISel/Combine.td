@@ -1759,10 +1759,29 @@ def bitfield_extract_from_shr_and : GICombineRule<
     [{ return Helper.matchBitfieldExtractFromShrAnd(*${root}, ${info}); }]),
   (apply [{ Helper.applyBuildFn(*${root}, ${info}); }])>;
 
+// Combine an extract-like operation of another one into one extract, e.g.
+// (ashr (sext_inreg (shl x, c), n), c) -> (sext_inreg x, n - c).
+def bitfield_extract_of_extract : GICombineRule<
+  (defs root:$root, build_fn_matchinfo:$info),
+  (match (wip_match_opcode G_LSHR, G_ASHR, G_UBFX, G_SBFX,
+                           G_SEXT_INREG):$root,
+    [{ return Helper.matchBitfieldExtractOfExtract(*${root}, ${info}); }]),
+  (apply [{ Helper.applyBuildFn(*${root}, ${info}); }])>;
+
+def bitfield_extract_from_and_of_trunc : GICombineRule<
+  (defs root:$root, build_fn_matchinfo:$info),
+  (match (G_LSHR $shift, $x, $amt),
+         (G_TRUNC $narrow, $shift),
+         (G_AND $dst, $narrow, $mask):$root,
+    [{ return Helper.matchBitfieldExtractFromAndOfTrunc(*${root}, ${info}); }]),
+  (apply [{ Helper.applyBuildFn(*${root}, ${info}); }])>;
+
 def form_bitfield_extract : GICombineGroup<[bitfield_extract_from_sext_inreg,
                                             bitfield_extract_from_and,
                                             bitfield_extract_from_shr,
-                                            bitfield_extract_from_shr_and]>;
+                                            bitfield_extract_from_shr_and,
+                                            bitfield_extract_of_extract,
+                                            bitfield_extract_from_and_of_trunc]>;
 
 def udiv_by_const : GICombineRule<
   (defs root:$root),

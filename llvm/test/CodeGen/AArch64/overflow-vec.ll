@@ -617,46 +617,40 @@ define <3 x i8> @smul_v3i8(<3 x i8> %a, <3 x i8> %b) {
 ;
 ; CHECK-GI-LABEL: smul_v3i8:
 ; CHECK-GI:       // %bb.0:
-; CHECK-GI-NEXT:    lsl w8, w0, #8
-; CHECK-GI-NEXT:    lsl w10, w3, #8
-; CHECK-GI-NEXT:    lsl w9, w1, #8
-; CHECK-GI-NEXT:    lsl w11, w4, #8
+; CHECK-GI-NEXT:    sxtb w8, w0
+; CHECK-GI-NEXT:    sxtb w10, w3
 ; CHECK-GI-NEXT:    fmov s0, w0
-; CHECK-GI-NEXT:    fmov s1, w3
-; CHECK-GI-NEXT:    sbfx w8, w8, #8, #8
-; CHECK-GI-NEXT:    sbfx w10, w10, #8, #8
-; CHECK-GI-NEXT:    sbfx w9, w9, #8, #8
-; CHECK-GI-NEXT:    sbfx w11, w11, #8, #8
-; CHECK-GI-NEXT:    lsl w12, w2, #8
-; CHECK-GI-NEXT:    fmov s2, w8
+; CHECK-GI-NEXT:    fmov s2, w3
+; CHECK-GI-NEXT:    sxtb w9, w1
+; CHECK-GI-NEXT:    sxtb w11, w4
+; CHECK-GI-NEXT:    fmov s1, w8
 ; CHECK-GI-NEXT:    fmov s3, w10
-; CHECK-GI-NEXT:    lsl w8, w5, #8
+; CHECK-GI-NEXT:    sxtb w8, w2
 ; CHECK-GI-NEXT:    mov v0.h[1], w1
-; CHECK-GI-NEXT:    mov v1.h[1], w4
-; CHECK-GI-NEXT:    sbfx w8, w8, #8, #8
-; CHECK-GI-NEXT:    mov v2.h[1], w9
+; CHECK-GI-NEXT:    mov v2.h[1], w4
+; CHECK-GI-NEXT:    mov v1.h[1], w9
 ; CHECK-GI-NEXT:    mov v3.h[1], w11
-; CHECK-GI-NEXT:    sbfx w9, w12, #8, #8
+; CHECK-GI-NEXT:    sxtb w9, w5
 ; CHECK-GI-NEXT:    mov v0.h[2], w2
-; CHECK-GI-NEXT:    mov v1.h[2], w5
-; CHECK-GI-NEXT:    mov v2.h[2], w9
-; CHECK-GI-NEXT:    mov v3.h[2], w8
-; CHECK-GI-NEXT:    mul v1.4h, v0.4h, v1.4h
-; CHECK-GI-NEXT:    mul v2.4h, v2.4h, v3.4h
+; CHECK-GI-NEXT:    mov v2.h[2], w5
+; CHECK-GI-NEXT:    mov v1.h[2], w8
+; CHECK-GI-NEXT:    mov v3.h[2], w9
+; CHECK-GI-NEXT:    mul v2.4h, v0.4h, v2.4h
+; CHECK-GI-NEXT:    mul v1.4h, v1.4h, v3.4h
 ; CHECK-GI-NEXT:    movi v3.8b, #23
-; CHECK-GI-NEXT:    uzp1 v4.8b, v1.8b, v0.8b
-; CHECK-GI-NEXT:    sshr v2.4h, v2.4h, #8
+; CHECK-GI-NEXT:    uzp1 v4.8b, v2.8b, v0.8b
+; CHECK-GI-NEXT:    sshr v1.4h, v1.4h, #8
 ; CHECK-GI-NEXT:    neg v3.8b, v3.8b
-; CHECK-GI-NEXT:    uzp1 v2.8b, v2.8b, v0.8b
+; CHECK-GI-NEXT:    uzp1 v1.8b, v1.8b, v0.8b
 ; CHECK-GI-NEXT:    sshl v3.8b, v4.8b, v3.8b
-; CHECK-GI-NEXT:    cmeq v2.8b, v2.8b, v3.8b
+; CHECK-GI-NEXT:    cmeq v1.8b, v1.8b, v3.8b
 ; CHECK-GI-NEXT:    movi d3, #0xffffffffffffffff
-; CHECK-GI-NEXT:    mvn v2.8b, v2.8b
-; CHECK-GI-NEXT:    zip1 v2.8b, v2.8b, v2.8b
-; CHECK-GI-NEXT:    shl v2.4h, v2.4h, #15
-; CHECK-GI-NEXT:    cmlt v2.4h, v2.4h, #0
-; CHECK-GI-NEXT:    eor v3.8b, v2.8b, v3.8b
-; CHECK-GI-NEXT:    and v1.8b, v1.8b, v2.8b
+; CHECK-GI-NEXT:    mvn v1.8b, v1.8b
+; CHECK-GI-NEXT:    zip1 v1.8b, v1.8b, v1.8b
+; CHECK-GI-NEXT:    shl v1.4h, v1.4h, #15
+; CHECK-GI-NEXT:    cmlt v1.4h, v1.4h, #0
+; CHECK-GI-NEXT:    eor v3.8b, v1.8b, v3.8b
+; CHECK-GI-NEXT:    and v1.8b, v2.8b, v1.8b
 ; CHECK-GI-NEXT:    and v0.8b, v0.8b, v3.8b
 ; CHECK-GI-NEXT:    orr v0.8b, v1.8b, v0.8b
 ; CHECK-GI-NEXT:    umov w0, v0.h[0]

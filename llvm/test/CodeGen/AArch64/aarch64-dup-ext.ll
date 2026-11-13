@@ -5,18 +5,11 @@
 ; Supported combines
 
 define <8 x i16> @dupsext_v8i8_v8i16(i8 %src, <8 x i8> %b) {
-; CHECK-SD-LABEL: dupsext_v8i8_v8i16:
-; CHECK-SD:       // %bb.0: // %entry
-; CHECK-SD-NEXT:    dup v1.8b, w0
-; CHECK-SD-NEXT:    smull v0.8h, v1.8b, v0.8b
-; CHECK-SD-NEXT:    ret
-;
-; CHECK-GI-LABEL: dupsext_v8i8_v8i16:
-; CHECK-GI:       // %bb.0: // %entry
-; CHECK-GI-NEXT:    ubfx w8, w0, #0, #24
-; CHECK-GI-NEXT:    dup v1.8b, w8
-; CHECK-GI-NEXT:    smull v0.8h, v1.8b, v0.8b
-; CHECK-GI-NEXT:    ret
+; CHECK-LABEL: dupsext_v8i8_v8i16:
+; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    dup v1.8b, w0
+; CHECK-NEXT:    smull v0.8h, v1.8b, v0.8b
+; CHECK-NEXT:    ret
 entry:
   %in = sext i8 %src to i16
   %ext.b = sext <8 x i8> %b to <8 x i16>
@@ -247,24 +240,14 @@ entry:
 ; Unsupported combines
 
 define <2 x i16> @dupsext_v2i8_v2i16(i8 %src, <2 x i8> %b) {
-; CHECK-SD-LABEL: dupsext_v2i8_v2i16:
-; CHECK-SD:       // %bb.0: // %entry
-; CHECK-SD-NEXT:    sxtb w8, w0
-; CHECK-SD-NEXT:    shl v0.2s, v0.2s, #24
-; CHECK-SD-NEXT:    dup v1.2s, w8
-; CHECK-SD-NEXT:    sshr v0.2s, v0.2s, #24
-; CHECK-SD-NEXT:    mul v0.2s, v1.2s, v0.2s
-; CHECK-SD-NEXT:    ret
-;
-; CHECK-GI-LABEL: dupsext_v2i8_v2i16:
-; CHECK-GI:       // %bb.0: // %entry
-; CHECK-GI-NEXT:    lsl w8, w0, #8
-; CHECK-GI-NEXT:    shl v0.2s, v0.2s, #24
-; CHECK-GI-NEXT:    sbfx w8, w8, #8, #8
-; CHECK-GI-NEXT:    sshr v0.2s, v0.2s, #24
-; CHECK-GI-NEXT:    dup v1.2s, w8
-; CHECK-GI-NEXT:    mul v0.2s, v1.2s, v0.2s
-; CHECK-GI-NEXT:    ret
+; CHECK-LABEL: dupsext_v2i8_v2i16:
+; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    sxtb w8, w0
+; CHECK-NEXT:    shl v0.2s, v0.2s, #24
+; CHECK-NEXT:    dup v1.2s, w8
+; CHECK-NEXT:    sshr v0.2s, v0.2s, #24
+; CHECK-NEXT:    mul v0.2s, v1.2s, v0.2s
+; CHECK-NEXT:    ret
 entry:
   %in = sext i8 %src to i16
   %ext.b = sext <2 x i8> %b to <2 x i16>
@@ -329,9 +312,8 @@ define <8 x i16> @nonsplat_shuffleinsert(i8 %src, <8 x i8> %b) {
 ;
 ; CHECK-GI-LABEL: nonsplat_shuffleinsert:
 ; CHECK-GI:       // %bb.0: // %entry
-; CHECK-GI-NEXT:    lsl w8, w0, #8
+; CHECK-GI-NEXT:    sxtb w8, w0
 ; CHECK-GI-NEXT:    sshll v0.8h, v0.8b, #0
-; CHECK-GI-NEXT:    sbfx w8, w8, #8, #8
 ; CHECK-GI-NEXT:    mov v1.h[7], w8
 ; CHECK-GI-NEXT:    mul v0.8h, v1.8h, v0.8h
 ; CHECK-GI-NEXT:    ret

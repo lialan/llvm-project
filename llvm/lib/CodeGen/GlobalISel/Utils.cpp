@@ -2102,19 +2102,11 @@ void BitFieldViewWalker::visit(Register D, const BitField &F) {
   case TargetOpcode::G_OR:
   case TargetOpcode::G_XOR:
     // Either operand may select the field of the other by its known bits.
-    for (unsigned I : {1, 2}) {
-      Register X = MI->getOperand(I).getReg();
-      Register Y = MI->getOperand(3 - I).getReg();
-      KnownBits Known;
-      if (VT) {
-        Known = VT->getKnownBits(X);
-      } else if (std::optional<APInt> C = getIConstantVRegVal(X, MRI)) {
-        Known = KnownBits::makeConstant(*C);
-      } else {
-        continue;
-      }
-      step(Y, F.stepThroughMask(Opc == TargetOpcode::G_AND, Known));
-    }
+    if (VT)
+      for (unsigned I : {1, 2})
+        step(MI->getOperand(3 - I).getReg(),
+             F.stepThroughMask(Opc == TargetOpcode::G_AND,
+                               VT->getKnownBits(MI->getOperand(I).getReg())));
     break;
   case TargetOpcode::G_TRUNC:
     Through(MI->getOperand(1).getReg(), 0, Bits, BitFieldExtKind::None);
@@ -2151,10 +2143,6 @@ void BitFieldViewWalker::visit(Register D, const BitField &F) {
                                         : BitFieldExtKind::Sign);
     break;
   }
-  case TargetOpcode::G_EXTRACT:
-    Through(MI->getOperand(1).getReg(), MI->getOperand(2).getImm(), Bits,
-            BitFieldExtKind::None);
-    break;
   case TargetOpcode::G_UNMERGE_VALUES: {
     // D is part J of the operand.
     const unsigned NumDefs = MI->getNumDefs();

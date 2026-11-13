@@ -35,18 +35,13 @@ static APInt evalField(const BitField &F, const APInt &S, unsigned Bits) {
   llvm_unreachable("unknown bit-field extension");
 }
 
-/// Applies \p Form to \p V. The bits that an any-extension adds are ones if
-/// \p FillOnes, else zeros.
-static APInt evalForm(ArrayRef<BitFieldFormOp> Form, APInt V, bool FillOnes) {
+/// Applies \p Form to \p V.
+static APInt evalForm(ArrayRef<BitFieldFormOp> Form, APInt V) {
   for (const BitFieldFormOp &Op : Form) {
     const unsigned Bits = V.getBitWidth();
     switch (Op.Kind) {
     case BitFieldFormOp::Trunc:
       V = V.trunc(Op.Bits);
-      break;
-    case BitFieldFormOp::AnyExt:
-      V = FillOnes ? V.zext(Op.Bits) | APInt::getBitsSetFrom(Op.Bits, Bits)
-                   : V.zext(Op.Bits);
       break;
     case BitFieldFormOp::ZExt:
       V = V.zext(Op.Bits);
@@ -59,9 +54,6 @@ static APInt evalForm(ArrayRef<BitFieldFormOp> Form, APInt V, bool FillOnes) {
       break;
     case BitFieldFormOp::AShr:
       V = V.ashr(Op.Imm0);
-      break;
-    case BitFieldFormOp::Shl:
-      V = V.shl(Op.Imm0);
       break;
     case BitFieldFormOp::AndLow:
       V &= APInt::getLowBitsSet(Bits, Op.Imm0);
@@ -101,26 +93,6 @@ static void forEachField(unsigned SrcBits, unsigned Bits, FnT Fn) {
 
 static constexpr unsigned Widths[] = {1, 2, 3, 5, 8};
 
-TEST(BitFieldViewTest, FormsComputeTheField) {
-  for (unsigned SrcBits : Widths) {
-    for (unsigned Bits : Widths) {
-      forEachField(SrcBits, Bits, [&](const BitField &F) {
-        SmallVector<BitFieldForm, 8> Forms;
-        getBitFieldForms(F, Bits, SrcBits, Forms);
-        ASSERT_FALSE(Forms.empty());
-        for (const BitFieldForm &Form : Forms) {
-          for (uint64_t S = 0; S != (uint64_t(1) << SrcBits); ++S) {
-            APInt Src(SrcBits, S);
-            APInt Expected = evalField(F, Src, Bits);
-            EXPECT_EQ(evalForm(Form, Src, /*FillOnes=*/false), Expected);
-            EXPECT_EQ(evalForm(Form, Src, /*FillOnes=*/true), Expected);
-          }
-        }
-      });
-    }
-  }
-}
-
 /// D[I] = S[Off + I] for I < Avail, filled above by Fill (unspecified bits
 /// are zeros or ones by \p FillOnes).
 static APInt evalThrough(const APInt &S, unsigned Bits, unsigned Off,
@@ -136,6 +108,26 @@ static APInt evalThrough(const APInt &S, unsigned Bits, unsigned Off,
     return D.sext(Bits);
   }
   llvm_unreachable("unknown bit-field extension");
+}
+
+namespace {
+
+TEST(BitFieldViewTest, FormsComputeTheField) {
+  for (unsigned SrcBits : Widths) {
+    for (unsigned Bits : Widths) {
+      forEachField(SrcBits, Bits, [&](const BitField &F) {
+        SmallVector<BitFieldForm, 8> Forms;
+        getBitFieldForms(F, Bits, SrcBits, Forms);
+        ASSERT_FALSE(Forms.empty());
+        for (const BitFieldForm &Form : Forms) {
+          for (uint64_t S = 0; S != (uint64_t(1) << SrcBits); ++S) {
+            APInt Src(SrcBits, S);
+            EXPECT_EQ(evalForm(Form, Src), evalField(F, Src, Bits));
+          }
+        }
+      });
+    }
+  }
 }
 
 TEST(BitFieldViewTest, StepThroughIsTheSameField) {
@@ -233,3 +225,5 @@ TEST(BitFieldViewTest, TwoFieldMaskIsNotAField) {
   EXPECT_EQ(G->Lo, 8u);
   EXPECT_EQ(G->Width, 4u);
 }
+
+} // end anonymous namespace

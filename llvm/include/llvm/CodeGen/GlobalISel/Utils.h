@@ -602,10 +602,10 @@ LLVM_ABI bool isAssertMI(const MachineInstr &MI);
 /// Root == V.Ext(V.Src[V.Lo, V.Lo + V.Width)) when Root is not poison.
 /// \p Path holds the registers that the instructions looked through define,
 /// Root first. The walk looks through at most \p MaxDepth instructions: shifts
-/// by constants, masks (by known bits from \p VT, or by constants if \p VT is
-/// null), truncations, extensions, G_SEXT_INREG, G_UBFX and G_SBFX with
-/// constant operands, G_EXTRACT, G_UNMERGE_VALUES and G_MERGE_VALUES. It never
-/// looks through G_FREEZE.
+/// by constants, masks (by known bits from \p VT, if it is not null),
+/// truncations, extensions, G_SEXT_INREG, G_UBFX and G_SBFX with constant
+/// operands, G_UNMERGE_VALUES and G_MERGE_VALUES. It never looks through
+/// G_FREEZE.
 LLVM_ABI void forEachBitFieldView(
     Register Root, const MachineRegisterInfo &MRI, GISelValueTracking *VT,
     function_ref<void(const BitFieldView<Register> &, ArrayRef<Register>)>

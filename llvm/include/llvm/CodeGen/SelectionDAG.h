@@ -2535,9 +2535,9 @@ public:
   /// that looks through at least one node: each view V says that
   /// Root == V.Ext(V.Src[V.Lo, V.Lo + V.Width)) when Root is not poison.
   /// \p Path holds the values of the nodes looked through, Root first. The
-  /// walk looks through at most \p MaxDepth nodes: shifts by constants, masks
-  /// (by known bits), truncations, extensions, SIGN_EXTEND_INREG,
-  /// EXTRACT_ELEMENT and BUILD_PAIR. It never looks through FREEZE.
+  /// walk looks through at most \p MaxDepth nodes: SRL and SHL by constants,
+  /// AND masks (by known bits), truncations, extensions, SIGN_EXTEND_INREG and
+  /// BUILD_PAIR. It never looks through FREEZE.
   LLVM_ABI void forEachBitFieldView(
       SDValue Root,
       function_ref<void(const BitFieldView<SDValue> &, ArrayRef<SDValue>)>

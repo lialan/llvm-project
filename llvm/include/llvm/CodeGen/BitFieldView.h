@@ -79,13 +79,10 @@ template <typename ValueT> struct BitFieldView : BitField {
 struct BitFieldFormOp {
   enum OpKind : uint8_t {
     Trunc,     ///< Truncate to Bits.
-    AnyExt,    ///< Extend to Bits; the operations after it do not read the
-               ///< new bits.
     ZExt,      ///< Zero-extend to Bits.
     SExt,      ///< Sign-extend to Bits.
     LShr,      ///< Logical shift right by Imm0.
     AShr,      ///< Arithmetic shift right by Imm0.
-    Shl,       ///< Shift left by Imm0.
     AndLow,    ///< Keep the low Imm0 bits, clear the others.
     SExtInReg, ///< Sign-extend the low Imm0 bits.
     UBFX,      ///< Zero-extend the Imm1 bits that start at bit Imm0.

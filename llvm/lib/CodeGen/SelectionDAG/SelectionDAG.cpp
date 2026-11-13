@@ -3389,7 +3389,6 @@ void BitFieldViewWalker::visit(SDValue D, const BitField &F) {
 
   switch (Opc) {
   case ISD::SRL:
-  case ISD::SRA:
   case ISD::SHL: {
     // A shift by a constant inside the width; a larger amount is poison.
     std::optional<unsigned> Amt = DAG.getValidShiftAmount(D);
@@ -3398,20 +3397,16 @@ void BitFieldViewWalker::visit(SDValue D, const BitField &F) {
     SDValue Src = D.getOperand(0);
     if (Opc == ISD::SRL)
       Through(Src, *Amt, Bits - *Amt, BitFieldExtKind::Zero);
-    else if (Opc == ISD::SRA)
-      Through(Src, *Amt, Bits - *Amt, BitFieldExtKind::Sign);
     else if (F.Lo >= *Amt)
       // The field lies above the zeros that the shift brings in.
       step(Src, BitField{F.Lo - *Amt, F.Width, F.Ext});
     break;
   }
   case ISD::AND:
-  case ISD::OR:
-  case ISD::XOR:
     // Either operand may select the field of the other by its known bits.
     for (unsigned I : {0, 1})
       step(D.getOperand(1 - I),
-           F.stepThroughMask(Opc == ISD::AND,
+           F.stepThroughMask(/*IsAnd=*/true,
                              DAG.computeKnownBits(D.getOperand(I))));
     break;
   case ISD::TRUNCATE:
@@ -3435,13 +3430,6 @@ void BitFieldViewWalker::visit(SDValue D, const BitField &F) {
     Through(D.getOperand(0), 0,
             cast<VTSDNode>(D.getOperand(1))->getVT().getSizeInBits(),
             BitFieldExtKind::Sign);
-    break;
-  case ISD::EXTRACT_ELEMENT:
-    // D is part Idx of the operand.
-    if (auto *Idx = dyn_cast<ConstantSDNode>(D.getOperand(1)))
-      if (Idx->getAPIntValue().ult(2))
-        Through(D.getOperand(0), Idx->getZExtValue() * Bits, Bits,
-                BitFieldExtKind::None);
     break;
   case ISD::BUILD_PAIR: {
     // A field inside one half is a field of that half.

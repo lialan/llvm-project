@@ -119,11 +119,9 @@ static void addSameWidthForms(const BitFieldForm &Prefix, unsigned Bits,
     Add({{Op::AShr, Bits, Lo}});
   } else if (Lo == 0) {
     Add({{Op::SExtInReg, Bits, Width}});
-    Add({{Op::Shl, Bits, Bits - Width}, {Op::AShr, Bits, Bits - Width}});
   } else {
     Add({{Op::SBFX, Bits, Lo, Width}});
     Add({{Op::LShr, Bits, Lo}, {Op::SExtInReg, Bits, Width}});
-    Add({{Op::Shl, Bits, Bits - Lo - Width}, {Op::AShr, Bits, Bits - Width}});
   }
 }
 
@@ -160,7 +158,6 @@ void llvm::getBitFieldForms(const BitField &F, unsigned Bits, unsigned SrcBits,
     Forms.push_back({{Op::LShr, SrcBits, F.Lo},
                      {Op::Trunc, Bits},
                      {Op::SExtInReg, Bits, F.Width}});
-    Forms.push_back({{Op::SBFX, SrcBits, F.Lo, F.Width}, {Op::Trunc, Bits}});
     return;
   }
 
@@ -177,9 +174,4 @@ void llvm::getBitFieldForms(const BitField &F, unsigned Bits, unsigned SrcBits,
     Forms.push_back(std::move(Form));
   }
   addSameWidthForms({{ExtOp, Bits}}, Bits, SrcBits, F, Forms);
-  // A form that takes a field below the top of the source and extends it by
-  // itself does not read the bits that an any-extension adds. With Top ==
-  // Bits, addSameWidthForms only gives such forms.
-  if (F.Width != SrcBits)
-    addSameWidthForms({{Op::AnyExt, Bits}}, Bits, Bits, F, Forms);
 }

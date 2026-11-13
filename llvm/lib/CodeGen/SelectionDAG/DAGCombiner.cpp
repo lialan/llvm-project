@@ -7690,34 +7690,53 @@ bool DAGCombiner::BackwardsPropagateMask(SDNode *N) {
 /// The bit-field extracts of a form, (and (srl X, Lo), Mask) and
 /// (sign_extend_inreg (srl X, Lo), FieldVT), are the patterns that targets
 /// with such an instruction select, so the fold only runs for the types for
-/// which TLI.isBitFieldExtractProfitable holds; it also prefers the cheaper of
-/// the forms with the same number of nodes.
+/// which TLI.isBitFieldExtractProfitable holds.
 SDValue DAGCombiner::foldBitFieldView(SDNode *N) {
   const EVT VT = N->getValueType(0);
-  if (!VT.isScalarInteger())
-    return SDValue();
-  // The forms are the patterns of bit-field extract instructions. A target
-  // without such an instruction for this type may match its own shapes of
-  // shifts and masks, which a form would break.
-  if (!TLI.isBitFieldExtractProfitable(VT, /*IsSigned=*/false) &&
-      !TLI.isBitFieldExtractProfitable(VT, /*IsSigned=*/true))
+  if (!VT.isScalarInteger() ||
+      (!TLI.isBitFieldExtractProfitable(VT, /*IsSigned=*/false) &&
+       !TLI.isBitFieldExtractProfitable(VT, /*IsSigned=*/true)))
     return SDValue();
   const unsigned Bits = VT.getSizeInBits();
+
+  // The opcode of an operation of a form. The forms also list a bit-field
+  // extract as a shift followed by a mask or a sign extension, which is how
+  // it is written here, so the extract itself is skipped.
+  auto GetOpcode = [](BitFieldFormOp::OpKind Kind) -> unsigned {
+    switch (Kind) {
+    case BitFieldFormOp::Trunc:
+      return ISD::TRUNCATE;
+    case BitFieldFormOp::ZExt:
+      return ISD::ZERO_EXTEND;
+    case BitFieldFormOp::SExt:
+      return ISD::SIGN_EXTEND;
+    case BitFieldFormOp::LShr:
+      return ISD::SRL;
+    case BitFieldFormOp::AShr:
+      return ISD::SRA;
+    case BitFieldFormOp::AndLow:
+      return ISD::AND;
+    case BitFieldFormOp::SExtInReg:
+      return ISD::SIGN_EXTEND_INREG;
+    case BitFieldFormOp::UBFX:
+    case BitFieldFormOp::SBFX:
+      return ISD::DELETED_NODE;
+    }
+    llvm_unreachable("unknown bit-field form operation");
+  };
 
   // Truncations, any-extensions, free zero extensions and the halves of a
   // pair usually need no instruction.
   auto IsFree = [&](unsigned Opc, EVT FromVT, EVT ToVT) {
     return Opc == ISD::TRUNCATE || Opc == ISD::ANY_EXTEND ||
-           Opc == ISD::EXTRACT_ELEMENT || Opc == ISD::BUILD_PAIR ||
+           Opc == ISD::BUILD_PAIR ||
            (Opc == ISD::ZERO_EXTEND && TLI.isZExtFree(FromVT, ToVT));
   };
 
-  // The number of nodes that are not free, an estimate of their instructions,
-  // and the widest type that they compute in: that of the operand for an
-  // extension, else that of the result.
+  // The number of nodes that are not free and the widest type that they
+  // compute in: that of the operand for an extension, else that of the result.
   struct Cost {
     unsigned Nodes = 0;
-    unsigned Insts = 0;
     unsigned MaxWidth = 0;
 
     void add(unsigned Width) {
@@ -7734,10 +7753,11 @@ SDValue DAGCombiner::foldBitFieldView(SDNode *N) {
       if (I != 0 && !V.hasOneUse())
         break;
       const unsigned Opc = V.getOpcode();
-      if (IsFree(Opc, V.getOperand(0).getValueType(), V.getValueType()))
+      SDValue Op = V.getOperand(0);
+      if (IsFree(Opc, Op.getValueType(), V.getValueType()))
         continue;
       const bool IsExt = Opc == ISD::ZERO_EXTEND || Opc == ISD::SIGN_EXTEND;
-      C.add((IsExt ? V.getOperand(0) : V).getValueSizeInBits());
+      C.add((IsExt ? Op : V).getValueSizeInBits());
     }
     return C;
   };
@@ -7748,86 +7768,44 @@ SDValue DAGCombiner::foldBitFieldView(SDNode *N) {
                          EVT SrcVT) -> std::optional<Cost> {
     Cost C;
     EVT CurVT = SrcVT;
-    for (auto [I, Op] : enumerate(Form)) {
-      EVT ResVT = Op.Bits == Bits ? VT : SrcVT;
-      bool Legal = true;
-      switch (Op.Kind) {
-      case BitFieldFormOp::Trunc:
-      case BitFieldFormOp::AnyExt:
-        Legal = hasOperation(Op.Kind == BitFieldFormOp::Trunc ? ISD::TRUNCATE
-                                                              : ISD::ANY_EXTEND,
-                             ResVT);
-        break;
-      case BitFieldFormOp::ZExt:
-      case BitFieldFormOp::SExt:
-        Legal = hasOperation(Op.Kind == BitFieldFormOp::ZExt ? ISD::ZERO_EXTEND
-                                                             : ISD::SIGN_EXTEND,
-                             ResVT);
-        if (Op.Kind == BitFieldFormOp::ZExt &&
-            IsFree(ISD::ZERO_EXTEND, CurVT, ResVT))
-          break;
-        C.add(CurVT.getSizeInBits());
-        ++C.Insts;
-        break;
-      case BitFieldFormOp::LShr:
-      case BitFieldFormOp::AShr:
-      case BitFieldFormOp::Shl:
-        Legal = hasOperation(Op.Kind == BitFieldFormOp::LShr   ? ISD::SRL
-                             : Op.Kind == BitFieldFormOp::AShr ? ISD::SRA
-                                                               : ISD::SHL,
-                             CurVT);
-        C.add(CurVT.getSizeInBits());
-        ++C.Insts;
-        break;
-      case BitFieldFormOp::AndLow:
-      case BitFieldFormOp::SExtInReg: {
-        const bool IsSigned = Op.Kind == BitFieldFormOp::SExtInReg;
-        Legal = IsSigned
-                    ? !LegalOperations ||
-                          TLI.isOperationLegal(
-                              ISD::SIGN_EXTEND_INREG,
-                              EVT::getIntegerVT(*DAG.getContext(), Op.Imm0))
-                    : hasOperation(ISD::AND, CurVT);
-        C.add(CurVT.getSizeInBits());
-        // (and (srl X, Lo), Mask) and (sign_extend_inreg (srl X, Lo),
-        // FieldVT) are one bit-field extract: the shift is already counted.
-        const bool AfterShift =
-            I != 0 && Form[I - 1].Kind == BitFieldFormOp::LShr;
-        if (!AfterShift || !TLI.isBitFieldExtractProfitable(CurVT, IsSigned))
-          ++C.Insts;
-        break;
-      }
-      case BitFieldFormOp::UBFX:
-      case BitFieldFormOp::SBFX:
-        // The same nodes as the shift and the mask or sign extension that
-        // follow it in the list of forms.
+    for (const BitFieldFormOp &Op : Form) {
+      const EVT ResVT = Op.Bits == Bits ? VT : SrcVT;
+      const unsigned Opc = GetOpcode(Op.Kind);
+      if (Opc == ISD::DELETED_NODE)
         return std::nullopt;
-      }
+      const bool Legal =
+          Opc == ISD::SIGN_EXTEND_INREG
+              ? !LegalOperations ||
+                    TLI.isOperationLegal(
+                        Opc, EVT::getIntegerVT(*DAG.getContext(), Op.Imm0))
+              : hasOperation(Opc, ResVT);
       if (!Legal)
         return std::nullopt;
+      if (!IsFree(Opc, CurVT, ResVT))
+        C.add(CurVT.getSizeInBits());
       CurVT = ResVT;
     }
     return C;
   };
 
-  // The form that saves the most nodes, then the one with the fewest
-  // instructions, then the one of the deepest view: it is not dependent on the
-  // operations that the view looks through. On a tie the first one is kept.
+  // The form that saves the most nodes, then the one of the deepest view: it
+  // is not dependent on the operations that the view looks through. On a tie
+  // the first one is kept.
   struct Choice {
     SDValue Src;
     BitFieldForm Form;
     unsigned Savings;
-    unsigned Insts;
     unsigned Depth;
   };
   std::optional<Choice> Best;
   DAG.forEachBitFieldView(SDValue(N, 0), [&](const BitFieldView<SDValue> &V,
                                              ArrayRef<SDValue> Path) {
     const EVT SrcVT = V.Src.getValueType();
-    if (SrcVT.getSizeInBits() == Bits && SrcVT != VT)
-      return;
-    // A field of a constant is constant folded.
-    if (isa<ConstantSDNode>(V.Src))
+    // Each node of a form has the type of the result or of the source, which
+    // must agree if they have the same width. A field of a constant is
+    // constant folded.
+    if ((SrcVT.getSizeInBits() == Bits && SrcVT != VT) ||
+        isa<ConstantSDNode>(V.Src))
       return;
     // A view of a single node is that node.
     const Cost Dead = GetDeadCost(Path);
@@ -7842,12 +7820,10 @@ SDValue DAGCombiner::foldBitFieldView(SDNode *N) {
       if (!New || New->Nodes >= Dead.Nodes || New->MaxWidth > Dead.MaxWidth)
         continue;
       unsigned Savings = Dead.Nodes - New->Nodes;
-      if (Best &&
-          std::make_tuple(Savings, -int(New->Insts), unsigned(Path.size())) <=
-              std::make_tuple(Best->Savings, -int(Best->Insts), Best->Depth))
+      if (Best && (Savings < Best->Savings ||
+                   (Savings == Best->Savings && Path.size() <= Best->Depth)))
         continue;
-      Best = Choice{V.Src, std::move(Form), Savings, New->Insts,
-                    unsigned(Path.size())};
+      Best = Choice{V.Src, std::move(Form), Savings, unsigned(Path.size())};
     }
   });
   if (!Best)
@@ -7855,47 +7831,34 @@ SDValue DAGCombiner::foldBitFieldView(SDNode *N) {
 
   SDLoc DL(N);
   SDValue Cur = Best->Src;
-  EVT CurVT = Cur.getValueType();
   for (const BitFieldFormOp &Op : Best->Form) {
-    EVT ResVT = Op.Bits == Bits ? VT : CurVT;
+    const EVT CurVT = Cur.getValueType();
+    const unsigned Opc = GetOpcode(Op.Kind);
     switch (Op.Kind) {
     case BitFieldFormOp::Trunc:
-      Cur = DAG.getNode(ISD::TRUNCATE, DL, ResVT, Cur);
-      break;
-    case BitFieldFormOp::AnyExt:
-      Cur = DAG.getNode(ISD::ANY_EXTEND, DL, ResVT, Cur);
-      break;
     case BitFieldFormOp::ZExt:
-      Cur = DAG.getNode(ISD::ZERO_EXTEND, DL, ResVT, Cur);
-      break;
     case BitFieldFormOp::SExt:
-      Cur = DAG.getNode(ISD::SIGN_EXTEND, DL, ResVT, Cur);
+      Cur = DAG.getNode(Opc, DL, VT, Cur);
       break;
     case BitFieldFormOp::LShr:
     case BitFieldFormOp::AShr:
-    case BitFieldFormOp::Shl: {
-      unsigned Opc = Op.Kind == BitFieldFormOp::LShr   ? ISD::SRL
-                     : Op.Kind == BitFieldFormOp::AShr ? ISD::SRA
-                                                       : ISD::SHL;
       Cur = DAG.getNode(Opc, DL, CurVT, Cur,
                         DAG.getShiftAmountConstant(Op.Imm0, CurVT, DL));
       break;
-    }
     case BitFieldFormOp::AndLow:
       Cur = DAG.getNode(
-          ISD::AND, DL, CurVT, Cur,
+          Opc, DL, CurVT, Cur,
           DAG.getConstant(APInt::getLowBitsSet(Op.Bits, Op.Imm0), DL, CurVT));
       break;
     case BitFieldFormOp::SExtInReg:
       Cur = DAG.getNode(
-          ISD::SIGN_EXTEND_INREG, DL, CurVT, Cur,
+          Opc, DL, CurVT, Cur,
           DAG.getValueType(EVT::getIntegerVT(*DAG.getContext(), Op.Imm0)));
       break;
     case BitFieldFormOp::UBFX:
     case BitFieldFormOp::SBFX:
-      llvm_unreachable("a bit-field extract is a shift and a mask");
+      llvm_unreachable("a bit-field extract is written as a shift and a mask");
     }
-    CurVT = ResVT;
   }
   return Cur;
 }

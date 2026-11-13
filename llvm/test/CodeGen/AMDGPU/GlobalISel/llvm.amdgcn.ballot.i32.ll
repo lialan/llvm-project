@@ -156,8 +156,6 @@ false:
 define amdgpu_cs i32 @branch_uniform_ballot_eq_zero_non_compare(i32 inreg %v) {
 ; CHECK-LABEL: branch_uniform_ballot_eq_zero_non_compare:
 ; CHECK:       ; %bb.0:
-; CHECK-NEXT:    s_xor_b32 s0, s0, 1
-; CHECK-NEXT:    s_xor_b32 s0, s0, 1
 ; CHECK-NEXT:    s_and_b32 s0, s0, 1
 ; CHECK-NEXT:    s_cmp_lg_u32 s0, 0
 ; CHECK-NEXT:    s_cbranch_scc1 .LBB9_2

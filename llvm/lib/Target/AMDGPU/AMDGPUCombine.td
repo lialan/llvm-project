@@ -335,7 +335,7 @@ def AMDGPUPreLegalizerCombiner: GICombiner<
   [all_combines, combine_fmul_with_select_to_fldexp, clamp_i64_to_i16,
    foldable_fneg, fold_fabs_fptrunc, combine_shuffle_vector,
    combine_shuffle_vector_to_build_vector, trunc_lshr16_to_unmerge,
-   binop_s64_with_s32_mask_combines, combine_or_s64_s32]> {
+   binop_s64_with_s32_mask_combines, combine_or_s64_s32, fold_ac_chain]> {
   let CombineAllMethodName = "tryCombineAllImpl";
 }
 

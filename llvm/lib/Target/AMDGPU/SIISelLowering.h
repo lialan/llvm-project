@@ -596,6 +596,8 @@ public:
   bool isReassocProfitable(MachineRegisterInfo &MRI, Register N0,
                            Register N1) const override;
 
+  bool shouldFoldACChains(EVT VT) const override { return true; }
+
   bool isCanonicalized(SelectionDAG &DAG, SDValue Op,
                        SDNodeFlags UserFlags = {}, unsigned MaxDepth = 5) const;
 

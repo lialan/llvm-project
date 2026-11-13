@@ -2615,12 +2615,10 @@ define i1 @test132(i32 %arg1, i32 %arg2, i32 %arg3, i32 %arg4) {
 ; GCN-LABEL: test132:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GCN-NEXT:    v_cmp_lt_u32_e32 vcc_lo, v0, v2
+; GCN-NEXT:    v_min_u32_e32 v1, v0, v1
+; GCN-NEXT:    v_cmp_lt_u32_e32 vcc_lo, v0, v3
 ; GCN-NEXT:    v_cmp_lt_u32_e64 s0, v1, v2
-; GCN-NEXT:    v_cmp_lt_u32_e64 s1, v0, v3
-; GCN-NEXT:    s_or_b32 s0, vcc_lo, s0
-; GCN-NEXT:    s_or_b32 s1, s1, vcc_lo
-; GCN-NEXT:    s_or_b32 s0, s0, s1
+; GCN-NEXT:    s_or_b32 s0, s0, vcc_lo
 ; GCN-NEXT:    v_cndmask_b32_e64 v0, 0, 1, s0
 ; GCN-NEXT:    s_setpc_b64 s[30:31]
   %cmp1 = icmp ult i32 %arg1, %arg3

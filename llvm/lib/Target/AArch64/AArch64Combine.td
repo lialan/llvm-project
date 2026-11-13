@@ -109,7 +109,8 @@ def AArch64PreLegalizerCombiner: GICombiner<
                                       simplify_uaddo,
                                       memcpy_family_combines,
                                       emit_bzero,
-                                      deinterleave_load, interleave_store]> {
+                                      deinterleave_load, interleave_store,
+                                      fold_ac_chain]> {
   let CombineAllMethodName = "tryCombineAllImpl";
 }
 

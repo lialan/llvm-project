@@ -4292,6 +4292,12 @@ public:
     return MRI.hasOneNonDBGUse(N0);
   }
 
+  /// Return true if the DAG combiner should flatten chains of the same
+  /// associative and commutative integer operation (ISD::ADD, ISD::AND,
+  /// ISD::OR or ISD::XOR) of type \p VT and rebuild them with their constants
+  /// folded and their repeated operands merged, deduplicated or cancelled.
+  virtual bool shouldFoldACChains(EVT VT) const { return false; }
+
   virtual bool isSDNodeAlwaysUniform(const SDNode * N) const {
     return false;
   }

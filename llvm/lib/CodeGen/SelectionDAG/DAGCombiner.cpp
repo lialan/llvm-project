@@ -94,6 +94,8 @@ STATISTIC(OpsNarrowed     , "Number of load/op/store narrowed");
 STATISTIC(LdStFP2Int      , "Number of fp load/store pairs transformed to int");
 STATISTIC(SlicedLoads, "Number of load sliced");
 STATISTIC(NumFPLogicOpsConv, "Number of logic ops converted to fp ops");
+STATISTIC(NumACChainsFolded,
+          "Number of associative and commutative chains folded");
 
 DEBUG_COUNTER(DAGCombineCounter, "dagcombine",
               "Controls whether a DAG combine is performed for a node");
@@ -160,6 +162,21 @@ static cl::opt<bool> EnableTopologicalSorting(
 static cl::opt<bool> DisableCombines("combiner-disabled", cl::Hidden,
                                      cl::init(false),
                                      cl::desc("Disable the DAG combiner"));
+
+static cl::opt<unsigned> ACChainMaxLeaves(
+    "combiner-ac-chain-max-leaves", cl::Hidden, cl::init(8),
+    cl::desc("DAG combiner maximum number of leaves of an associative and "
+             "commutative chain to flatten"));
+
+static cl::opt<unsigned> ACChainMaxNodes(
+    "combiner-ac-chain-max-nodes", cl::Hidden, cl::init(16),
+    cl::desc("DAG combiner maximum number of values to visit when flattening "
+             "an associative and commutative chain"));
+
+static cl::opt<bool> ACChainFlattenShared(
+    "combiner-ac-chain-flatten-shared", cl::Hidden, cl::init(false),
+    cl::desc("DAG combiner flattens associative and commutative chains "
+             "through values with more than one use"));
 
 namespace {
 
@@ -601,6 +618,32 @@ static const MDNode *getCommonMemCacheHint(const RangeT &Nodes) {
                                       SDValue N1, SDNodeFlags Flags);
     SDValue reassociateOps(unsigned Opc, const SDLoc &DL, SDValue N0,
                            SDValue N1, SDNodeFlags Flags);
+
+    /// An associative and commutative (AC) chain: nested ISD::ADD, ISD::AND,
+    /// ISD::OR or ISD::XOR nodes with the same opcode and type, seen as an
+    /// operation on a multiset of leaves.
+    struct ACChain {
+      /// The leaves in the order in which a left-to-right depth-first walk
+      /// from the root reaches them, one entry per use.
+      SmallVector<SDValue, 8> Leaves;
+      /// The nodes that the walk looked through, starting with the root.
+      SmallVector<SDNode *, 8> Nodes;
+    };
+
+    /// Flatten the AC chain rooted at \p Root into \p Chain. The walk looks
+    /// through an operand with the opcode and type of \p Root and without
+    /// poison-generating flags, which regrouping would not preserve. Every
+    /// other operand is a leaf, including a node on the path from the root
+    /// (a cycle) and a value with more than one use unless
+    /// \p LookThroughShared is set. Returns false if the chain has more than
+    /// \p MaxLeaves leaves or the walk visits more than \p MaxNodes values.
+    bool flattenACChain(SDNode *Root, bool LookThroughShared,
+                        unsigned MaxLeaves, unsigned MaxNodes, ACChain &Chain);
+
+    /// Rebuild the AC chain rooted at \p N with its constants folded and its
+    /// repeated leaves merged (ADD), deduplicated (AND, OR) or cancelled
+    /// (XOR), if that takes fewer nodes.
+    SDValue foldACChain(SDNode *N);
     SDValue reassociateReduction(unsigned RedOpc, unsigned Opc, const SDLoc &DL,
                                  EVT VT, SDValue N0, SDValue N1,
                                  SDNodeFlags Flags = SDNodeFlags());
@@ -1366,6 +1409,177 @@ SDValue DAGCombiner::reassociateOps(unsigned Opc, const SDLoc &DL, SDValue N0,
   if (SDValue Combined = reassociateOpsCommutative(Opc, DL, N1, N0, Flags))
     return Combined;
   return SDValue();
+}
+
+bool DAGCombiner::flattenACChain(SDNode *Root, bool LookThroughShared,
+                                 unsigned MaxLeaves, unsigned MaxNodes,
+                                 ACChain &Chain) {
+  unsigned Opc = Root->getOpcode();
+  EVT VT = Root->getValueType(0);
+  Chain.Leaves.clear();
+  Chain.Nodes.assign({Root});
+  // The nodes on the path from the root to the value being visited.
+  SmallVector<const SDNode *, 8> Path = {Root};
+  unsigned NumVisited = 1;
+
+  // Visit V; return false once the walk is over budget.
+  auto Visit = [&](auto &Self, SDValue V) -> bool {
+    if (++NumVisited > MaxNodes)
+      return false;
+    if (V.getOpcode() != Opc || V.getValueType() != VT ||
+        V->hasPoisonGeneratingFlags() ||
+        (!LookThroughShared && !V.hasOneUse()) ||
+        is_contained(Path, V.getNode())) {
+      Chain.Leaves.push_back(V);
+      return Chain.Leaves.size() <= MaxLeaves;
+    }
+    if (!is_contained(Chain.Nodes, V.getNode()))
+      Chain.Nodes.push_back(V.getNode());
+    Path.push_back(V.getNode());
+    bool InBudget = Self(Self, V.getOperand(0)) && Self(Self, V.getOperand(1));
+    Path.pop_back();
+    return InBudget;
+  };
+  return Visit(Visit, Root->getOperand(0)) && Visit(Visit, Root->getOperand(1));
+}
+
+SDValue DAGCombiner::foldACChain(SDNode *N) {
+  unsigned Opc = N->getOpcode();
+  EVT VT = N->getValueType(0);
+  if (!TLI.shouldFoldACChains(VT))
+    return SDValue();
+
+  // Fold each chain once, at its root: if the only user flattens through N,
+  // leave N to that user.
+  if (N->hasOneUse() && !N->hasPoisonGeneratingFlags() &&
+      (*N->user_begin())->getOpcode() == Opc)
+    return SDValue();
+
+  // A chain of one node is left to the simpler combines.
+  ACChain Chain;
+  if (!flattenACChain(N, ACChainFlattenShared, ACChainMaxLeaves,
+                      ACChainMaxNodes, Chain) ||
+      Chain.Nodes.size() < 2)
+    return SDValue();
+
+  // Fold the constants, and count how often each other leaf is used, in the
+  // order of the walk, which is stable between runs.
+  unsigned BitWidth = VT.getScalarSizeInBits();
+  APInt Identity =
+      Opc == ISD::AND ? APInt::getAllOnes(BitWidth) : APInt::getZero(BitWidth);
+  APInt Cst = Identity;
+  SmallVector<std::pair<SDValue, unsigned>, 8> Terms;
+  for (SDValue Leaf : Chain.Leaves) {
+    ConstantSDNode *C = isConstOrConstSplat(Leaf);
+    if (C && !C->isOpaque()) {
+      switch (Opc) {
+      case ISD::ADD:
+        Cst += C->getAPIntValue();
+        break;
+      case ISD::AND:
+        Cst &= C->getAPIntValue();
+        break;
+      case ISD::OR:
+        Cst |= C->getAPIntValue();
+        break;
+      case ISD::XOR:
+        Cst ^= C->getAPIntValue();
+        break;
+      default:
+        llvm_unreachable("not an associative and commutative operation");
+      }
+      continue;
+    }
+    // A value is the same at all of its uses, except an undefined value,
+    // which may be a different value at each use: never merge those.
+    auto *It = Terms.end();
+    if (!Leaf.isUndef())
+      It = find_if(Terms, [&](const auto &T) { return T.first == Leaf; });
+    if (It == Terms.end())
+      Terms.emplace_back(Leaf, 1);
+    else
+      ++It->second;
+  }
+
+  // x & x == x | x == x, x ^ x == 0, and x & 0 == 0, x | -1 == -1.
+  if (Opc == ISD::AND || Opc == ISD::OR) {
+    for (auto &T : Terms)
+      T.second = 1;
+  } else if (Opc == ISD::XOR) {
+    erase_if(Terms, [](const auto &T) { return T.second % 2 == 0; });
+    for (auto &T : Terms)
+      T.second = 1;
+  }
+  if ((Opc == ISD::AND && Cst.isZero()) || (Opc == ISD::OR && Cst.isAllOnes()))
+    Terms.clear();
+  bool KeepCst = !Terms.empty() && Cst != Identity;
+
+  // Put the uniform leaves first, so that the uniform part of the chain stays
+  // uniform on targets that track divergence.
+  std::stable_partition(Terms.begin(), Terms.end(),
+                        [](const auto &T) { return !T.first->isDivergent(); });
+
+  // A leaf added 2^k times becomes one shift, unless that shift would be
+  // out of range.
+  bool CanShl = Opc == ISD::ADD &&
+                (!LegalOperations || TLI.isOperationLegal(ISD::SHL, VT));
+  auto IsShl = [=](unsigned Count) {
+    return CanShl && Count > 1 && isPowerOf2_32(Count) &&
+           Log2_32(Count) < BitWidth;
+  };
+
+  // Count the nodes of the left-deep rebuild; constants are free.
+  unsigned NumOperands = KeepCst;
+  unsigned NumNewNodes = 0;
+  for (unsigned Count : make_second_range(Terms)) {
+    if (IsShl(Count)) {
+      ++NumNewNodes;
+      ++NumOperands;
+    } else {
+      NumOperands += Count;
+    }
+  }
+  if (NumOperands > 1)
+    NumNewNodes += NumOperands - 1;
+
+  // The rewrite deletes the root and every node of the chain whose users are
+  // all deleted; an inner node with another user stays.
+  SmallPtrSet<const SDNode *, 8> Dead = {N};
+  for (bool Changed = true; Changed;) {
+    Changed = false;
+    for (const SDNode *Node : drop_begin(Chain.Nodes)) {
+      if (!Dead.contains(Node) && all_of(Node->users(), [&](const SDNode *U) {
+            return Dead.contains(U);
+          })) {
+        Dead.insert(Node);
+        Changed = true;
+      }
+    }
+  }
+  if (NumNewNodes >= Dead.size())
+    return SDValue();
+
+  // Rebuild a left-deep tree with the constant last. The new nodes have no
+  // flags.
+  ++NumACChainsFolded;
+  SDLoc DL(N);
+  if (Terms.empty())
+    return DAG.getConstant(Cst, DL, VT);
+  SmallVector<SDValue, 8> Ops;
+  for (auto [V, Count] : Terms) {
+    if (IsShl(Count))
+      Ops.push_back(
+          DAG.getNode(ISD::SHL, DL, VT, V,
+                      DAG.getShiftAmountConstant(Log2_32(Count), VT, DL)));
+    else
+      Ops.append(Count, V);
+  }
+  if (KeepCst)
+    Ops.push_back(DAG.getConstant(Cst, DL, VT));
+  SDValue Acc = Ops.front();
+  for (SDValue Op : drop_begin(Ops))
+    Acc = DAG.getNode(Opc, DL, VT, Acc, Op);
+  return Acc;
 }
 
 // Try to fold Opc(vecreduce(x), vecreduce(y)) -> vecreduce(Opc(x, y))
@@ -3321,6 +3535,9 @@ SDValue DAGCombiner::visitADD(SDNode *N) {
 
   if (SDValue Combined = visitADDLike(N))
     return Combined;
+
+  if (SDValue V = foldACChain(N))
+    return V;
 
   if (SDValue V = foldAddSubBoolOfMaskedVal(N, DL, DAG))
     return V;
@@ -8065,6 +8282,9 @@ SDValue DAGCombiner::visitAND(SDNode *N) {
   if (SDValue RAND = reassociateOps(ISD::AND, DL, N0, N1, N->getFlags()))
     return RAND;
 
+  if (SDValue V = foldACChain(N))
+    return V;
+
   // Fold and(vecreduce(x), vecreduce(y)) -> vecreduce(and(x, y))
   if (SDValue SD =
           reassociateReduction(ISD::VECREDUCE_AND, ISD::AND, DL, VT, N0, N1))
@@ -9124,6 +9344,9 @@ SDValue DAGCombiner::visitOR(SDNode *N) {
   // reassociate or
   if (SDValue ROR = reassociateOps(ISD::OR, DL, N0, N1, N->getFlags()))
     return ROR;
+
+  if (SDValue V = foldACChain(N))
+    return V;
 
   // Fold or(vecreduce(x), vecreduce(y)) -> vecreduce(or(x, y))
   if (SDValue SD =
@@ -10652,6 +10875,9 @@ SDValue DAGCombiner::visitXOR(SDNode *N) {
   // reassociate xor
   if (SDValue RXOR = reassociateOps(ISD::XOR, DL, N0, N1, N->getFlags()))
     return RXOR;
+
+  if (SDValue V = foldACChain(N))
+    return V;
 
   // Fold xor(vecreduce(x), vecreduce(y)) -> vecreduce(xor(x, y))
   if (SDValue SD =

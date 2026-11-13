@@ -10,6 +10,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallBitVector.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/CmpInstAnalysis.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/GlobalISel/GISelChangeObserver.h"
@@ -45,6 +46,9 @@
 #include <tuple>
 
 #define DEBUG_TYPE "gi-combiner"
+
+STATISTIC(NumACChainsFolded,
+          "Number of associative and commutative chains folded");
 
 using namespace llvm;
 using namespace MIPatternMatch;
@@ -5182,6 +5186,207 @@ bool CombinerHelper::matchReassocCommBinOp(MachineInstr &MI,
   if (tryReassocBinOp(Opc, DstReg, RHSReg, LHSReg, MatchInfo))
     return true;
   return false;
+}
+
+static cl::opt<unsigned> ACChainMaxLeaves(
+    "gisel-ac-chain-max-leaves", cl::Hidden, cl::init(8),
+    cl::desc("Maximum number of leaves of an associative and commutative "
+             "chain that the combiner flattens"));
+
+static cl::opt<unsigned> ACChainMaxNodes(
+    "gisel-ac-chain-max-nodes", cl::Hidden, cl::init(16),
+    cl::desc("Maximum number of values that the combiner visits when it "
+             "flattens an associative and commutative chain"));
+
+static cl::opt<bool> ACChainFlattenShared(
+    "gisel-ac-chain-flatten-shared", cl::Hidden, cl::init(false),
+    cl::desc("Flatten associative and commutative chains through values "
+             "with more than one use"));
+
+bool CombinerHelper::flattenACChain(MachineInstr &Root, bool LookThroughShared,
+                                    unsigned MaxLeaves, unsigned MaxNodes,
+                                    ACChain &Chain) const {
+  unsigned Opc = Root.getOpcode();
+  Register RootReg = Root.getOperand(0).getReg();
+  LLT Ty = MRI.getType(RootReg);
+  Chain.Leaves.clear();
+  Chain.Nodes.assign({&Root});
+  // The values on the path from the root to the value being visited.
+  SmallVector<Register, 8> Path = {RootReg};
+  unsigned NumVisited = 1;
+
+  // Visit Reg; return false once the walk is over budget.
+  auto Visit = [&](auto &Self, Register Reg) -> bool {
+    if (++NumVisited > MaxNodes)
+      return false;
+    MachineInstr *Def = Reg.isVirtual() ? MRI.getVRegDef(Reg) : nullptr;
+    if (!Def || Def->getOpcode() != Opc || MRI.getType(Reg) != Ty ||
+        Def->getParent() != Root.getParent() ||
+        (Def->getFlags() & MachineInstr::getPoisonGeneratingFlags()) ||
+        (!LookThroughShared && !MRI.hasOneNonDBGUse(Reg)) ||
+        is_contained(Path, Reg)) {
+      Chain.Leaves.push_back(Reg);
+      return Chain.Leaves.size() <= MaxLeaves;
+    }
+    if (!is_contained(Chain.Nodes, Def))
+      Chain.Nodes.push_back(Def);
+    Path.push_back(Reg);
+    bool InBudget = Self(Self, Def->getOperand(1).getReg()) &&
+                    Self(Self, Def->getOperand(2).getReg());
+    Path.pop_back();
+    return InBudget;
+  };
+  return Visit(Visit, Root.getOperand(1).getReg()) &&
+         Visit(Visit, Root.getOperand(2).getReg());
+}
+
+bool CombinerHelper::matchFoldACChain(MachineInstr &MI,
+                                      BuildFnTy &MatchInfo) const {
+  unsigned Opc = MI.getOpcode();
+  Register Dst = MI.getOperand(0).getReg();
+  LLT Ty = MRI.getType(Dst);
+
+  // Fold each chain once, at its root: if the only user flattens through MI,
+  // leave MI to that user.
+  if (MRI.hasOneNonDBGUse(Dst) &&
+      !(MI.getFlags() & MachineInstr::getPoisonGeneratingFlags())) {
+    const MachineInstr &User = *MRI.use_instr_nodbg_begin(Dst);
+    if (User.getOpcode() == Opc && User.getParent() == MI.getParent())
+      return false;
+  }
+
+  // A chain of one instruction is left to the simpler combines.
+  ACChain Chain;
+  if (!flattenACChain(MI, ACChainFlattenShared, ACChainMaxLeaves,
+                      ACChainMaxNodes, Chain) ||
+      Chain.Nodes.size() < 2)
+    return false;
+
+  // Fold the constants, and count how often each other leaf is used, in the
+  // order of the walk, which is stable between runs.
+  unsigned BitWidth = Ty.getScalarSizeInBits();
+  APInt Identity = Opc == TargetOpcode::G_AND ? APInt::getAllOnes(BitWidth)
+                                              : APInt::getZero(BitWidth);
+  APInt Cst = Identity;
+  SmallVector<std::pair<Register, unsigned>, 8> Terms;
+  for (Register Leaf : Chain.Leaves) {
+    if (std::optional<APInt> C = isConstantOrConstantSplatVector(Leaf, MRI)) {
+      switch (Opc) {
+      case TargetOpcode::G_ADD:
+        Cst += *C;
+        break;
+      case TargetOpcode::G_AND:
+        Cst &= *C;
+        break;
+      case TargetOpcode::G_OR:
+        Cst |= *C;
+        break;
+      case TargetOpcode::G_XOR:
+        Cst ^= *C;
+        break;
+      default:
+        llvm_unreachable("not an associative and commutative operation");
+      }
+      continue;
+    }
+    // A register is one value at all of its uses, except an undefined value,
+    // which may be a different value at each use: never merge those.
+    auto *It = Terms.end();
+    if (!getOpcodeDef<GImplicitDef>(Leaf, MRI))
+      It = find_if(Terms, [&](const auto &T) { return T.first == Leaf; });
+    if (It == Terms.end())
+      Terms.emplace_back(Leaf, 1);
+    else
+      ++It->second;
+  }
+
+  // x & x == x | x == x, x ^ x == 0, and x & 0 == 0, x | -1 == -1.
+  if (Opc == TargetOpcode::G_AND || Opc == TargetOpcode::G_OR) {
+    for (auto &T : Terms)
+      T.second = 1;
+  } else if (Opc == TargetOpcode::G_XOR) {
+    erase_if(Terms, [](const auto &T) { return T.second % 2 == 0; });
+    for (auto &T : Terms)
+      T.second = 1;
+  }
+  if ((Opc == TargetOpcode::G_AND && Cst.isZero()) ||
+      (Opc == TargetOpcode::G_OR && Cst.isAllOnes()))
+    Terms.clear();
+  bool KeepCst = !Terms.empty() && Cst != Identity;
+
+  // A leaf added 2^k times becomes one shift, unless that shift would be
+  // out of range.
+  bool CanShl = Opc == TargetOpcode::G_ADD &&
+                isLegalOrBeforeLegalizer({TargetOpcode::G_SHL, {Ty, Ty}});
+  auto IsShl = [=](unsigned Count) {
+    return CanShl && Count > 1 && isPowerOf2_32(Count) &&
+           Log2_32(Count) < BitWidth;
+  };
+
+  // Count the instructions of the left-deep rebuild; constants are free.
+  unsigned NumOperands = KeepCst;
+  unsigned NumNewInstrs = 0;
+  bool NeedsConstant = KeepCst || Terms.empty();
+  for (unsigned Count : make_second_range(Terms)) {
+    if (IsShl(Count)) {
+      ++NumNewInstrs;
+      ++NumOperands;
+      NeedsConstant = true;
+    } else {
+      NumOperands += Count;
+    }
+  }
+  if (NumOperands > 1)
+    NumNewInstrs += NumOperands - 1;
+  if (NeedsConstant && !isConstantLegalOrBeforeLegalizer(Ty))
+    return false;
+
+  // The rewrite deletes the root and every instruction of the chain whose
+  // users are all deleted; an inner instruction with another user stays.
+  SmallPtrSet<const MachineInstr *, 8> Dead = {&MI};
+  for (bool Changed = true; Changed;) {
+    Changed = false;
+    for (const MachineInstr *Node : drop_begin(Chain.Nodes)) {
+      if (Dead.contains(Node))
+        continue;
+      if (all_of(MRI.use_nodbg_instructions(Node->getOperand(0).getReg()),
+                 [&](const MachineInstr &U) { return Dead.contains(&U); })) {
+        Dead.insert(Node);
+        Changed = true;
+      }
+    }
+  }
+  if (NumNewInstrs >= Dead.size())
+    return false;
+
+  // Rebuild a left-deep tree with the constant last. The new instructions
+  // have no flags.
+  MatchInfo = [=](MachineIRBuilder &B) {
+    ++NumACChainsFolded;
+    if (Terms.empty()) {
+      B.buildConstant(Dst, Cst);
+      return;
+    }
+    SmallVector<Register, 8> Ops;
+    for (auto [Reg, Count] : Terms) {
+      if (IsShl(Count))
+        Ops.push_back(
+            B.buildShl(Ty, Reg, B.buildConstant(Ty, Log2_32(Count))).getReg(0));
+      else
+        Ops.append(Count, Reg);
+    }
+    if (KeepCst)
+      Ops.push_back(B.buildConstant(Ty, Cst).getReg(0));
+    if (Ops.size() == 1) {
+      B.buildCopy(Dst, Ops.front());
+      return;
+    }
+    Register Acc = Ops.front();
+    for (Register Op : drop_end(drop_begin(Ops)))
+      Acc = B.buildInstr(Opc, {Ty}, {Acc, Op}).getReg(0);
+    B.buildInstr(Opc, {Dst}, {Acc, Ops.back()});
+  };
+  return true;
 }
 
 bool CombinerHelper::matchConstantFoldCastOp(MachineInstr &MI,

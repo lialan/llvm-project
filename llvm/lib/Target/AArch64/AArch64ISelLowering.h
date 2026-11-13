@@ -73,6 +73,8 @@ public:
   bool isReassocProfitable(SelectionDAG &DAG, SDValue N0,
                            SDValue N1) const override;
 
+  bool shouldFoldACChains(EVT VT) const override { return true; }
+
   /// Selects the correct CCAssignFn for a given CallingConvention value.
   CCAssignFn *CCAssignFnForCall(CallingConv::ID CC, bool IsVarArg) const;
 

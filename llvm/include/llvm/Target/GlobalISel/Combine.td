@@ -1851,6 +1851,20 @@ def reassoc_comm_binops : GICombineRule<
 
 def reassocs : GICombineGroup<[reassoc_ptradd, reassoc_comm_binops]>;
 
+// Flatten a chain of the same associative and commutative operation and
+// rebuild it with its constants folded and its repeated operands merged,
+// deduplicated or cancelled, e.g. (a + 7) + (b + 9) -> (a + b) + 16 and
+// (a ^ b) ^ (b ^ c) -> a ^ c.
+def fold_ac_chain_frags : GICombinePatFrag<
+  (outs root:$dst), (ins),
+  !foreach(op, [G_ADD, G_AND, G_OR, G_XOR],
+           (pattern (op $dst, $x, $y)))>;
+def fold_ac_chain : GICombineRule<
+  (defs root:$root, build_fn_matchinfo:$matchinfo),
+  (match (fold_ac_chain_frags $root):$mi,
+    [{ return Helper.matchFoldACChain(*${mi}, ${matchinfo}); }]),
+  (apply [{ Helper.applyBuildFn(*${mi}, ${matchinfo}); }])>;
+
 // Constant fold operations.
 def constant_fold_binop_frags : GICombinePatFrag<
   (outs root:$dst), (ins),

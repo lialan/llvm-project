@@ -65,12 +65,9 @@ body:             |
     ; CHECK-NEXT: {{  $}}
     ; CHECK-NEXT: %ptr:_(p1) = COPY $vgpr0_vgpr1
     ; CHECK-NEXT: %load:_(<2 x s32>) = G_LOAD %ptr(p1) :: (volatile load (<2 x s32>), addrspace 1)
-    ; CHECK-NEXT: %mask_elt:_(s32) = G_CONSTANT i32 -255
-    ; CHECK-NEXT: %mask:_(<2 x s32>) = G_BUILD_VECTOR %mask_elt(s32), %mask_elt(s32)
-    ; CHECK-NEXT: %and:_(<2 x s32>) = G_AND %load, %mask
-    ; CHECK-NEXT: [[C:%[0-9]+]]:_(s32) = G_CONSTANT i32 255
+    ; CHECK-NEXT: [[C:%[0-9]+]]:_(s32) = G_CONSTANT i32 1
     ; CHECK-NEXT: [[BUILD_VECTOR:%[0-9]+]]:_(<2 x s32>) = G_BUILD_VECTOR [[C]](s32), [[C]](s32)
-    ; CHECK-NEXT: %inreg:_(<2 x s32>) = G_AND %and, [[BUILD_VECTOR]]
+    ; CHECK-NEXT: %inreg:_(<2 x s32>) = G_AND %load, [[BUILD_VECTOR]]
     ; CHECK-NEXT: $vgpr0_vgpr1 = COPY %inreg(<2 x s32>)
     %ptr:_(p1) = COPY $vgpr0_vgpr1
     %load:_(<2 x s32>) = G_LOAD %ptr :: (volatile load (<2 x s32>), addrspace 1, align 8)

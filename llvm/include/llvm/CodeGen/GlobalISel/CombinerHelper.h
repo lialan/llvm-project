@@ -728,6 +728,34 @@ public:
   LLVM_ABI bool matchReassocCommBinOp(MachineInstr &MI,
                                       BuildFnTy &MatchInfo) const;
 
+  /// An associative and commutative (AC) chain: nested G_ADD, G_AND, G_OR or
+  /// G_XOR instructions with the same opcode and type, seen as an operation on
+  /// a multiset of leaves.
+  struct ACChain {
+    /// The leaves in the order in which a left-to-right depth-first walk from
+    /// the root reaches them, one entry per use.
+    SmallVector<Register, 8> Leaves;
+    /// The instructions that the walk looked through, starting with the root.
+    SmallVector<MachineInstr *, 8> Nodes;
+  };
+
+  /// Flatten the AC chain rooted at \p Root into \p Chain. The walk looks
+  /// through an operand defined in the block of \p Root by an instruction with
+  /// the same opcode and type and without poison-generating flags, which
+  /// regrouping would not preserve. Every other operand is a leaf, including
+  /// a G_PHI (so loop-carried values are leaves), a value on the path from the
+  /// root (a cycle), and a value with more than one non-debug use unless
+  /// \p LookThroughShared is set. Returns false if the chain has more than
+  /// \p MaxLeaves leaves or the walk visits more than \p MaxNodes values.
+  LLVM_ABI bool flattenACChain(MachineInstr &Root, bool LookThroughShared,
+                               unsigned MaxLeaves, unsigned MaxNodes,
+                               ACChain &Chain) const;
+
+  /// Rebuild the AC chain rooted at \p MI with its constants folded and its
+  /// repeated leaves merged (G_ADD), deduplicated (G_AND, G_OR) or cancelled
+  /// (G_XOR), if that takes fewer instructions.
+  LLVM_ABI bool matchFoldACChain(MachineInstr &MI, BuildFnTy &MatchInfo) const;
+
   /// Do constant folding when opportunities are exposed after MIR building.
   LLVM_ABI bool matchConstantFoldCastOp(MachineInstr &MI,
                                         APInt &MatchInfo) const;

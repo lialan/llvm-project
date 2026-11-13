@@ -571,7 +571,6 @@ define i64 @gccbug(i64 %x0, i64 %x1) {
 ; CHECK-GI-NEXT:    cset w10, eq
 ; CHECK-GI-NEXT:    orr w9, w10, w9
 ; CHECK-GI-NEXT:    and w8, w9, w8
-; CHECK-GI-NEXT:    and x8, x8, #0x1
 ; CHECK-GI-NEXT:    add x0, x8, #1
 ; CHECK-GI-NEXT:    ret
   %cmp0 = icmp eq i64 %x1, 0

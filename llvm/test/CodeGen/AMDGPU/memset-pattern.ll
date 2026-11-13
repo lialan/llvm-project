@@ -1085,7 +1085,6 @@ define void @memset_pattern_i64_as7_dynlen_unaligned_uniform_len(ptr addrspace(7
 ; GFX942-GISEL:       ; %bb.0:
 ; GFX942-GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; GFX942-GISEL-NEXT:    s_mov_b32 s8, s17
-; GFX942-GISEL-NEXT:    s_mov_b32 s9, s18
 ; GFX942-GISEL-NEXT:    s_and_b64 s[4:5], s[8:9], 1
 ; GFX942-GISEL-NEXT:    s_sub_u32 s6, s17, s4
 ; GFX942-GISEL-NEXT:    s_subb_u32 s7, s18, s5

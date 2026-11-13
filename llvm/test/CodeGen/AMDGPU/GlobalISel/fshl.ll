@@ -1881,7 +1881,7 @@ define amdgpu_ps i48 @s_fshl_v2i24(i48 inreg %lhs.arg, i48 inreg %rhs.arg, i48 i
 ; GFX6-NEXT:    s_lshr_b32 s6, s0, 16
 ; GFX6-NEXT:    s_lshr_b32 s7, s1, 8
 ; GFX6-NEXT:    s_and_b32 s8, s0, 0xff
-; GFX6-NEXT:    s_bfe_u32 s9, s0, 0x80008
+; GFX6-NEXT:    s_lshr_b32 s9, s0, 8
 ; GFX6-NEXT:    s_lshr_b64 s[0:1], s[0:1], 24
 ; GFX6-NEXT:    v_cvt_f32_ubyte0_e32 v0, 24
 ; GFX6-NEXT:    s_lshl_b32 s9, s9, 8
@@ -1890,7 +1890,7 @@ define amdgpu_ps i48 @s_fshl_v2i24(i48 inreg %lhs.arg, i48 inreg %rhs.arg, i48 i
 ; GFX6-NEXT:    s_or_b32 s8, s8, s9
 ; GFX6-NEXT:    s_and_b32 s0, 0xffff, s0
 ; GFX6-NEXT:    s_lshl_b32 s1, s1, 16
-; GFX6-NEXT:    s_bfe_u32 s9, s2, 0x80008
+; GFX6-NEXT:    s_lshr_b32 s9, s2, 8
 ; GFX6-NEXT:    s_or_b32 s7, s0, s1
 ; GFX6-NEXT:    s_lshr_b32 s0, s2, 16
 ; GFX6-NEXT:    s_and_b32 s1, s2, 0xff
@@ -1911,7 +1911,7 @@ define amdgpu_ps i48 @s_fshl_v2i24(i48 inreg %lhs.arg, i48 inreg %rhs.arg, i48 i
 ; GFX6-NEXT:    s_and_b32 s1, s8, 0xff
 ; GFX6-NEXT:    s_and_b32 s0, 0xffff, s0
 ; GFX6-NEXT:    s_lshl_b32 s1, s1, 16
-; GFX6-NEXT:    s_bfe_u32 s8, s4, 0x80008
+; GFX6-NEXT:    s_lshr_b32 s8, s4, 8
 ; GFX6-NEXT:    s_or_b32 s2, s0, s1
 ; GFX6-NEXT:    s_and_b32 s1, s4, 0xff
 ; GFX6-NEXT:    s_lshl_b32 s8, s8, 8

@@ -21,7 +21,6 @@ define i64 @foo(ptr nocapture readonly %ptr, i64 %a, i64 %b, i64 %c) local_unnam
 ; CHECK-GI-NEXT:    cmn x3, x2
 ; CHECK-GI-NEXT:    cset w10, hs
 ; CHECK-GI-NEXT:    lsr x8, x8, #32
-; CHECK-GI-NEXT:    and x10, x10, #0x1
 ; CHECK-GI-NEXT:    umaddl x0, w8, w9, x10
 ; CHECK-GI-NEXT:    ret
 entry:

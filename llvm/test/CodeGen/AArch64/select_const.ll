@@ -75,7 +75,7 @@ define i32 @select_0_or_neg1(i1 %cond) {
 ;
 ; CHECK-GI-LABEL: select_0_or_neg1:
 ; CHECK-GI:       // %bb.0:
-; CHECK-GI-NEXT:    eor w8, w0, #0x1
+; CHECK-GI-NEXT:    mvn w8, w0
 ; CHECK-GI-NEXT:    sbfx w0, w8, #0, #1
 ; CHECK-GI-NEXT:    ret
   %sel = select i1 %cond, i32 0, i32 -1
@@ -90,7 +90,7 @@ define i32 @select_0_or_neg1_zeroext(i1 zeroext %cond) {
 ;
 ; CHECK-GI-LABEL: select_0_or_neg1_zeroext:
 ; CHECK-GI:       // %bb.0:
-; CHECK-GI-NEXT:    eor w8, w0, #0x1
+; CHECK-GI-NEXT:    mvn w8, w0
 ; CHECK-GI-NEXT:    sbfx w0, w8, #0, #1
 ; CHECK-GI-NEXT:    ret
   %sel = select i1 %cond, i32 0, i32 -1
@@ -98,16 +98,10 @@ define i32 @select_0_or_neg1_zeroext(i1 zeroext %cond) {
 }
 
 define i32 @select_0_or_neg1_signext(i1 signext %cond) {
-; CHECK-SD-LABEL: select_0_or_neg1_signext:
-; CHECK-SD:       // %bb.0:
-; CHECK-SD-NEXT:    mvn w0, w0
-; CHECK-SD-NEXT:    ret
-;
-; CHECK-GI-LABEL: select_0_or_neg1_signext:
-; CHECK-GI:       // %bb.0:
-; CHECK-GI-NEXT:    eor w8, w0, #0x1
-; CHECK-GI-NEXT:    sbfx w0, w8, #0, #1
-; CHECK-GI-NEXT:    ret
+; CHECK-LABEL: select_0_or_neg1_signext:
+; CHECK:       // %bb.0:
+; CHECK-NEXT:    mvn w0, w0
+; CHECK-NEXT:    ret
   %sel = select i1 %cond, i32 0, i32 -1
   ret i32 %sel
 }
@@ -970,10 +964,9 @@ define <4 x float> @select_const_i1(i1 %c) {
 ;
 ; CHECK-GI-LABEL: select_const_i1:
 ; CHECK-GI:       // %bb.0: // %entry
-; CHECK-GI-NEXT:    and w8, w0, #0x1
+; CHECK-GI-NEXT:    sbfx w8, w0, #0, #1
 ; CHECK-GI-NEXT:    fmov v0.4s, #1.00000000
 ; CHECK-GI-NEXT:    movi v1.2d, #0000000000000000
-; CHECK-GI-NEXT:    sbfx w8, w8, #0, #1
 ; CHECK-GI-NEXT:    dup v2.4s, w8
 ; CHECK-GI-NEXT:    bif v0.16b, v1.16b, v2.16b
 ; CHECK-GI-NEXT:    ret

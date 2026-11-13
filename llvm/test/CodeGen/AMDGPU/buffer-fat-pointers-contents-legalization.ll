@@ -3648,7 +3648,6 @@ define void @store_v2i6(<2 x i6> %data, ptr addrspace(8) inreg %buf) {
 ; GISEL-LABEL: store_v2i6:
 ; GISEL:       ; %bb.0:
 ; GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
-; GISEL-NEXT:    v_and_b32_e32 v1, 63, v1
 ; GISEL-NEXT:    v_and_b32_e32 v0, 63, v0
 ; GISEL-NEXT:    v_lshlrev_b16_e32 v1, 6, v1
 ; GISEL-NEXT:    v_or_b32_e32 v0, v0, v1

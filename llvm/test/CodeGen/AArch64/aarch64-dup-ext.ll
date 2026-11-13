@@ -13,9 +13,7 @@ define <8 x i16> @dupsext_v8i8_v8i16(i8 %src, <8 x i8> %b) {
 ;
 ; CHECK-GI-LABEL: dupsext_v8i8_v8i16:
 ; CHECK-GI:       // %bb.0: // %entry
-; CHECK-GI-NEXT:    lsl w8, w0, #8
-; CHECK-GI-NEXT:    sxth w8, w8
-; CHECK-GI-NEXT:    lsr w8, w8, #8
+; CHECK-GI-NEXT:    ubfx w8, w0, #0, #24
 ; CHECK-GI-NEXT:    dup v1.8b, w8
 ; CHECK-GI-NEXT:    smull v0.8h, v1.8b, v0.8b
 ; CHECK-GI-NEXT:    ret
@@ -44,18 +42,11 @@ entry:
 }
 
 define <4 x i32> @dupsext_v4i16_v4i32(i16 %src, <4 x i16> %b) {
-; CHECK-SD-LABEL: dupsext_v4i16_v4i32:
-; CHECK-SD:       // %bb.0: // %entry
-; CHECK-SD-NEXT:    dup v1.4h, w0
-; CHECK-SD-NEXT:    smull v0.4s, v1.4h, v0.4h
-; CHECK-SD-NEXT:    ret
-;
-; CHECK-GI-LABEL: dupsext_v4i16_v4i32:
-; CHECK-GI:       // %bb.0: // %entry
-; CHECK-GI-NEXT:    sxth w8, w0
-; CHECK-GI-NEXT:    dup v1.4h, w8
-; CHECK-GI-NEXT:    smull v0.4s, v1.4h, v0.4h
-; CHECK-GI-NEXT:    ret
+; CHECK-LABEL: dupsext_v4i16_v4i32:
+; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    dup v1.4h, w0
+; CHECK-NEXT:    smull v0.4s, v1.4h, v0.4h
+; CHECK-NEXT:    ret
 entry:
   %in = sext i16 %src to i32
   %ext.b = sext <4 x i16> %b to <4 x i32>
@@ -354,27 +345,14 @@ entry:
 }
 
 define <4 x i32> @nonsplat_shuffleinsert2(<4 x i16> %b, i16 %b0, i16 %b1, i16 %b2, i16 %b3) {
-; CHECK-SD-LABEL: nonsplat_shuffleinsert2:
-; CHECK-SD:       // %bb.0: // %entry
-; CHECK-SD-NEXT:    fmov s1, w0
-; CHECK-SD-NEXT:    mov v1.h[1], w1
-; CHECK-SD-NEXT:    mov v1.h[2], w2
-; CHECK-SD-NEXT:    mov v1.h[3], w3
-; CHECK-SD-NEXT:    smull v0.4s, v1.4h, v0.4h
-; CHECK-SD-NEXT:    ret
-;
-; CHECK-GI-LABEL: nonsplat_shuffleinsert2:
-; CHECK-GI:       // %bb.0: // %entry
-; CHECK-GI-NEXT:    sxth w8, w0
-; CHECK-GI-NEXT:    sxth w9, w1
-; CHECK-GI-NEXT:    fmov s1, w8
-; CHECK-GI-NEXT:    sxth w8, w2
-; CHECK-GI-NEXT:    mov v1.h[1], w9
-; CHECK-GI-NEXT:    mov v1.h[2], w8
-; CHECK-GI-NEXT:    sxth w8, w3
-; CHECK-GI-NEXT:    mov v1.h[3], w8
-; CHECK-GI-NEXT:    smull v0.4s, v1.4h, v0.4h
-; CHECK-GI-NEXT:    ret
+; CHECK-LABEL: nonsplat_shuffleinsert2:
+; CHECK:       // %bb.0: // %entry
+; CHECK-NEXT:    fmov s1, w0
+; CHECK-NEXT:    mov v1.h[1], w1
+; CHECK-NEXT:    mov v1.h[2], w2
+; CHECK-NEXT:    mov v1.h[3], w3
+; CHECK-NEXT:    smull v0.4s, v1.4h, v0.4h
+; CHECK-NEXT:    ret
 entry:
   %s0 = sext i16 %b0 to i32
   %s1 = sext i16 %b1 to i32

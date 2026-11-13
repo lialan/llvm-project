@@ -1420,10 +1420,9 @@ define i5 @combine_i5_sdiv_const7(i5 %x) {
 ;
 ; CHECK-GI-LABEL: combine_i5_sdiv_const7:
 ; CHECK-GI:       // %bb.0:
-; CHECK-GI-NEXT:    mov w8, #19 // =0x13
-; CHECK-GI-NEXT:    sbfx w9, w0, #0, #5
-; CHECK-GI-NEXT:    sbfx w8, w8, #0, #5
-; CHECK-GI-NEXT:    mul w8, w9, w8
+; CHECK-GI-NEXT:    sbfx w8, w0, #0, #5
+; CHECK-GI-NEXT:    mov w9, #-13 // =0xfffffff3
+; CHECK-GI-NEXT:    mul w8, w8, w9
 ; CHECK-GI-NEXT:    add w8, w0, w8, asr #5
 ; CHECK-GI-NEXT:    sbfx w8, w8, #0, #5
 ; CHECK-GI-NEXT:    asr w8, w8, #2

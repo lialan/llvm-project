@@ -405,7 +405,7 @@ define i64 @foo18_overflow4(i1 %cmp) nounwind readnone optsize ssp {
 ;
 ; CHECK-GI-LABEL: foo18_overflow4:
 ; CHECK-GI:       // %bb.0: // %entry
-; CHECK-GI-NEXT:    eor w8, w0, #0x1
+; CHECK-GI-NEXT:    mvn w8, w0
 ; CHECK-GI-NEXT:    lsl x0, x8, #63
 ; CHECK-GI-NEXT:    ret
 entry:

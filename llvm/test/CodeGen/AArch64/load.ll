@@ -283,12 +283,10 @@ define <2 x i64> @load_v2i8_v2u8_sve(ptr %ptr) "target-features"="+sve" {
 ; CHECK-GI-NEXT:    movi d0, #0x0000ff000000ff
 ; CHECK-GI-NEXT:    mov v1.s[1], v2.s[0]
 ; CHECK-GI-NEXT:    and v0.8b, v1.8b, v0.8b
-; CHECK-GI-NEXT:    fmov w9, s0
-; CHECK-GI-NEXT:    mov w8, v0.s[1]
-; CHECK-GI-NEXT:    and x9, x9, #0xffff
-; CHECK-GI-NEXT:    fmov d0, x9
-; CHECK-GI-NEXT:    and x8, x8, #0xffff
-; CHECK-GI-NEXT:    mov v0.d[1], x8
+; CHECK-GI-NEXT:    mov w8, v0.s[0]
+; CHECK-GI-NEXT:    mov w9, v0.s[1]
+; CHECK-GI-NEXT:    fmov d0, x8
+; CHECK-GI-NEXT:    mov v0.d[1], x9
 ; CHECK-GI-NEXT:    ret
   %a = load <2 x i8>, ptr %ptr
   %a.zext = zext <2 x i8> %a to <2 x i64>

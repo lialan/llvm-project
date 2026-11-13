@@ -15408,7 +15408,6 @@ define void @freeze_v2i1(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX6-GISEL-NEXT:    buffer_load_ubyte v0, v[0:1], s[4:7], 0 addr64
 ; GFX6-GISEL-NEXT:    s_waitcnt vmcnt(0)
 ; GFX6-GISEL-NEXT:    v_lshrrev_b32_e32 v1, 1, v0
-; GFX6-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
 ; GFX6-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
 ; GFX6-GISEL-NEXT:    v_lshlrev_b32_e32 v1, 1, v1
 ; GFX6-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
@@ -15440,7 +15439,6 @@ define void @freeze_v2i1(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX7-GISEL-NEXT:    buffer_load_ubyte v0, v[0:1], s[4:7], 0 addr64
 ; GFX7-GISEL-NEXT:    s_waitcnt vmcnt(0)
 ; GFX7-GISEL-NEXT:    v_lshrrev_b32_e32 v1, 1, v0
-; GFX7-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
 ; GFX7-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
 ; GFX7-GISEL-NEXT:    v_lshlrev_b32_e32 v1, 1, v1
 ; GFX7-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
@@ -15465,7 +15463,6 @@ define void @freeze_v2i1(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX8-GISEL-NEXT:    flat_load_ubyte v0, v[0:1]
 ; GFX8-GISEL-NEXT:    s_waitcnt vmcnt(0)
 ; GFX8-GISEL-NEXT:    v_lshrrev_b32_e32 v1, 1, v0
-; GFX8-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
 ; GFX8-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
 ; GFX8-GISEL-NEXT:    v_lshlrev_b16_e32 v1, 1, v1
 ; GFX8-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
@@ -15490,7 +15487,6 @@ define void @freeze_v2i1(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX9-GISEL-NEXT:    global_load_ubyte v0, v[0:1], off
 ; GFX9-GISEL-NEXT:    s_waitcnt vmcnt(0)
 ; GFX9-GISEL-NEXT:    v_lshrrev_b32_e32 v1, 1, v0
-; GFX9-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
 ; GFX9-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
 ; GFX9-GISEL-NEXT:    v_lshlrev_b16_e32 v1, 1, v1
 ; GFX9-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
@@ -15515,7 +15511,6 @@ define void @freeze_v2i1(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX10-GISEL-NEXT:    s_waitcnt vmcnt(0)
 ; GFX10-GISEL-NEXT:    v_lshrrev_b32_e32 v1, 1, v0
 ; GFX10-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
-; GFX10-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
 ; GFX10-GISEL-NEXT:    v_lshlrev_b16 v1, 1, v1
 ; GFX10-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX10-GISEL-NEXT:    v_and_b32_e32 v0, 3, v0
@@ -15547,7 +15542,6 @@ define void @freeze_v2i1(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX11-GISEL-NEXT:    s_waitcnt vmcnt(0)
 ; GFX11-GISEL-NEXT:    v_lshrrev_b32_e32 v1, 1, v0
 ; GFX11-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
-; GFX11-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
 ; GFX11-GISEL-NEXT:    v_lshlrev_b16 v1, 1, v1
 ; GFX11-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX11-GISEL-NEXT:    v_and_b32_e32 v0, 3, v0
@@ -15583,10 +15577,9 @@ define void @freeze_v3i1(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX6-GISEL-NEXT:    buffer_load_ubyte v0, v[0:1], s[4:7], 0 addr64
 ; GFX6-GISEL-NEXT:    s_waitcnt vmcnt(0)
 ; GFX6-GISEL-NEXT:    v_lshrrev_b32_e32 v1, 1, v0
-; GFX6-GISEL-NEXT:    v_lshrrev_b32_e32 v4, 2, v0
 ; GFX6-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
+; GFX6-GISEL-NEXT:    v_lshrrev_b32_e32 v4, 2, v0
 ; GFX6-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
-; GFX6-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
 ; GFX6-GISEL-NEXT:    v_lshlrev_b32_e32 v1, 1, v1
 ; GFX6-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX6-GISEL-NEXT:    v_lshlrev_b32_e32 v1, 2, v4
@@ -15619,10 +15612,9 @@ define void @freeze_v3i1(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX7-GISEL-NEXT:    buffer_load_ubyte v0, v[0:1], s[4:7], 0 addr64
 ; GFX7-GISEL-NEXT:    s_waitcnt vmcnt(0)
 ; GFX7-GISEL-NEXT:    v_lshrrev_b32_e32 v1, 1, v0
-; GFX7-GISEL-NEXT:    v_lshrrev_b32_e32 v4, 2, v0
 ; GFX7-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
+; GFX7-GISEL-NEXT:    v_lshrrev_b32_e32 v4, 2, v0
 ; GFX7-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
-; GFX7-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
 ; GFX7-GISEL-NEXT:    v_lshlrev_b32_e32 v1, 1, v1
 ; GFX7-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX7-GISEL-NEXT:    v_lshlrev_b32_e32 v1, 2, v4
@@ -15648,10 +15640,9 @@ define void @freeze_v3i1(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX8-GISEL-NEXT:    flat_load_ubyte v0, v[0:1]
 ; GFX8-GISEL-NEXT:    s_waitcnt vmcnt(0)
 ; GFX8-GISEL-NEXT:    v_lshrrev_b32_e32 v1, 1, v0
-; GFX8-GISEL-NEXT:    v_lshrrev_b32_e32 v4, 2, v0
 ; GFX8-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
+; GFX8-GISEL-NEXT:    v_lshrrev_b32_e32 v4, 2, v0
 ; GFX8-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
-; GFX8-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
 ; GFX8-GISEL-NEXT:    v_lshlrev_b16_e32 v1, 1, v1
 ; GFX8-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX8-GISEL-NEXT:    v_lshlrev_b16_e32 v1, 2, v4
@@ -15677,10 +15668,9 @@ define void @freeze_v3i1(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX9-GISEL-NEXT:    global_load_ubyte v0, v[0:1], off
 ; GFX9-GISEL-NEXT:    s_waitcnt vmcnt(0)
 ; GFX9-GISEL-NEXT:    v_lshrrev_b32_e32 v1, 1, v0
-; GFX9-GISEL-NEXT:    v_lshrrev_b32_e32 v4, 2, v0
 ; GFX9-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
+; GFX9-GISEL-NEXT:    v_lshrrev_b32_e32 v4, 2, v0
 ; GFX9-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
-; GFX9-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
 ; GFX9-GISEL-NEXT:    v_lshlrev_b16_e32 v1, 1, v1
 ; GFX9-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX9-GISEL-NEXT:    v_lshlrev_b16_e32 v1, 2, v4
@@ -15705,14 +15695,13 @@ define void @freeze_v3i1(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX10-GISEL-NEXT:    global_load_ubyte v0, v[0:1], off
 ; GFX10-GISEL-NEXT:    s_waitcnt vmcnt(0)
 ; GFX10-GISEL-NEXT:    v_lshrrev_b32_e32 v1, 1, v0
-; GFX10-GISEL-NEXT:    v_lshrrev_b32_e32 v4, 2, v0
-; GFX10-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
+; GFX10-GISEL-NEXT:    v_and_b32_e32 v4, 1, v0
+; GFX10-GISEL-NEXT:    v_lshrrev_b32_e32 v0, 2, v0
 ; GFX10-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
-; GFX10-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
+; GFX10-GISEL-NEXT:    v_lshlrev_b16 v0, 2, v0
 ; GFX10-GISEL-NEXT:    v_lshlrev_b16 v1, 1, v1
-; GFX10-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
-; GFX10-GISEL-NEXT:    v_lshlrev_b16 v1, 2, v4
-; GFX10-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
+; GFX10-GISEL-NEXT:    v_or_b32_e32 v1, v4, v1
+; GFX10-GISEL-NEXT:    v_or_b32_e32 v0, v1, v0
 ; GFX10-GISEL-NEXT:    v_and_b32_e32 v0, 7, v0
 ; GFX10-GISEL-NEXT:    global_store_byte v[2:3], v0, off
 ; GFX10-GISEL-NEXT:    s_setpc_b64 s[30:31]
@@ -15741,14 +15730,13 @@ define void @freeze_v3i1(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX11-GISEL-NEXT:    global_load_u8 v0, v[0:1], off
 ; GFX11-GISEL-NEXT:    s_waitcnt vmcnt(0)
 ; GFX11-GISEL-NEXT:    v_lshrrev_b32_e32 v1, 1, v0
-; GFX11-GISEL-NEXT:    v_lshrrev_b32_e32 v4, 2, v0
-; GFX11-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
+; GFX11-GISEL-NEXT:    v_and_b32_e32 v4, 1, v0
+; GFX11-GISEL-NEXT:    v_lshrrev_b32_e32 v0, 2, v0
 ; GFX11-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
-; GFX11-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
+; GFX11-GISEL-NEXT:    v_lshlrev_b16 v0, 2, v0
 ; GFX11-GISEL-NEXT:    v_lshlrev_b16 v1, 1, v1
-; GFX11-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
-; GFX11-GISEL-NEXT:    v_lshlrev_b16 v1, 2, v4
-; GFX11-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
+; GFX11-GISEL-NEXT:    v_or_b32_e32 v1, v4, v1
+; GFX11-GISEL-NEXT:    v_or_b32_e32 v0, v1, v0
 ; GFX11-GISEL-NEXT:    v_and_b32_e32 v0, 7, v0
 ; GFX11-GISEL-NEXT:    global_store_b8 v[2:3], v0, off
 ; GFX11-GISEL-NEXT:    s_setpc_b64 s[30:31]
@@ -16052,7 +16040,6 @@ define void @freeze_v2i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX6-GISEL-NEXT:    v_cndmask_b32_e64 v0, 0, 1, vcc
 ; GFX6-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v1
 ; GFX6-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc
-; GFX6-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
 ; GFX6-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
 ; GFX6-GISEL-NEXT:    v_lshlrev_b32_e32 v1, 1, v1
 ; GFX6-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
@@ -16093,7 +16080,6 @@ define void @freeze_v2i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX7-GISEL-NEXT:    v_cndmask_b32_e64 v0, 0, 1, vcc
 ; GFX7-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v1
 ; GFX7-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc
-; GFX7-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
 ; GFX7-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
 ; GFX7-GISEL-NEXT:    v_lshlrev_b32_e32 v1, 1, v1
 ; GFX7-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
@@ -16127,7 +16113,6 @@ define void @freeze_v2i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX8-GISEL-NEXT:    v_cndmask_b32_e64 v0, 0, 1, vcc
 ; GFX8-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v1
 ; GFX8-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc
-; GFX8-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
 ; GFX8-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
 ; GFX8-GISEL-NEXT:    v_lshlrev_b16_e32 v1, 1, v1
 ; GFX8-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
@@ -16161,7 +16146,6 @@ define void @freeze_v2i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX9-GISEL-NEXT:    v_cndmask_b32_e64 v0, 0, 1, vcc
 ; GFX9-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v1
 ; GFX9-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc
-; GFX9-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
 ; GFX9-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
 ; GFX9-GISEL-NEXT:    v_lshlrev_b16_e32 v1, 1, v1
 ; GFX9-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
@@ -16190,13 +16174,12 @@ define void @freeze_v2i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX10-GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; GFX10-GISEL-NEXT:    global_load_dwordx2 v[0:1], v[0:1], off
 ; GFX10-GISEL-NEXT:    s_waitcnt vmcnt(0)
-; GFX10-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc_lo, 0, v1
-; GFX10-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc_lo
 ; GFX10-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc_lo, 0, v0
-; GFX10-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
 ; GFX10-GISEL-NEXT:    v_cndmask_b32_e64 v0, 0, 1, vcc_lo
-; GFX10-GISEL-NEXT:    v_lshlrev_b16 v1, 1, v1
+; GFX10-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc_lo, 0, v1
 ; GFX10-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
+; GFX10-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc_lo
+; GFX10-GISEL-NEXT:    v_lshlrev_b16 v1, 1, v1
 ; GFX10-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX10-GISEL-NEXT:    v_and_b32_e32 v0, 3, v0
 ; GFX10-GISEL-NEXT:    global_store_byte v[2:3], v0, off
@@ -16237,13 +16220,12 @@ define void @freeze_v2i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX11-GISEL-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; GFX11-GISEL-NEXT:    global_load_b64 v[0:1], v[0:1], off
 ; GFX11-GISEL-NEXT:    s_waitcnt vmcnt(0)
-; GFX11-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc_lo, 0, v1
-; GFX11-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc_lo
 ; GFX11-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc_lo, 0, v0
-; GFX11-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
 ; GFX11-GISEL-NEXT:    v_cndmask_b32_e64 v0, 0, 1, vcc_lo
-; GFX11-GISEL-NEXT:    v_lshlrev_b16 v1, 1, v1
+; GFX11-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc_lo, 0, v1
 ; GFX11-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
+; GFX11-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc_lo
+; GFX11-GISEL-NEXT:    v_lshlrev_b16 v1, 1, v1
 ; GFX11-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX11-GISEL-NEXT:    v_and_b32_e32 v0, 3, v0
 ; GFX11-GISEL-NEXT:    global_store_b8 v[2:3], v0, off
@@ -16293,10 +16275,9 @@ define void @freeze_v3i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX6-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v5
 ; GFX6-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc
 ; GFX6-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v6
-; GFX6-GISEL-NEXT:    v_cndmask_b32_e64 v4, 0, 1, vcc
 ; GFX6-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
+; GFX6-GISEL-NEXT:    v_cndmask_b32_e64 v4, 0, 1, vcc
 ; GFX6-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
-; GFX6-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
 ; GFX6-GISEL-NEXT:    v_lshlrev_b32_e32 v1, 1, v1
 ; GFX6-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX6-GISEL-NEXT:    v_lshlrev_b32_e32 v1, 2, v4
@@ -16343,10 +16324,9 @@ define void @freeze_v3i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX7-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v5
 ; GFX7-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc
 ; GFX7-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v6
-; GFX7-GISEL-NEXT:    v_cndmask_b32_e64 v4, 0, 1, vcc
 ; GFX7-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
+; GFX7-GISEL-NEXT:    v_cndmask_b32_e64 v4, 0, 1, vcc
 ; GFX7-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
-; GFX7-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
 ; GFX7-GISEL-NEXT:    v_lshlrev_b32_e32 v1, 1, v1
 ; GFX7-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX7-GISEL-NEXT:    v_lshlrev_b32_e32 v1, 2, v4
@@ -16386,10 +16366,9 @@ define void @freeze_v3i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX8-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v5
 ; GFX8-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc
 ; GFX8-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v6
-; GFX8-GISEL-NEXT:    v_cndmask_b32_e64 v4, 0, 1, vcc
 ; GFX8-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
+; GFX8-GISEL-NEXT:    v_cndmask_b32_e64 v4, 0, 1, vcc
 ; GFX8-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
-; GFX8-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
 ; GFX8-GISEL-NEXT:    v_lshlrev_b16_e32 v1, 1, v1
 ; GFX8-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX8-GISEL-NEXT:    v_lshlrev_b16_e32 v1, 2, v4
@@ -16429,10 +16408,9 @@ define void @freeze_v3i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX9-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v5
 ; GFX9-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc
 ; GFX9-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v6
-; GFX9-GISEL-NEXT:    v_cndmask_b32_e64 v4, 0, 1, vcc
 ; GFX9-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
+; GFX9-GISEL-NEXT:    v_cndmask_b32_e64 v4, 0, 1, vcc
 ; GFX9-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
-; GFX9-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
 ; GFX9-GISEL-NEXT:    v_lshlrev_b16_e32 v1, 1, v1
 ; GFX9-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX9-GISEL-NEXT:    v_lshlrev_b16_e32 v1, 2, v4
@@ -16476,7 +16454,6 @@ define void @freeze_v3i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX10-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
 ; GFX10-GISEL-NEXT:    v_cndmask_b32_e64 v4, 0, 1, vcc_lo
 ; GFX10-GISEL-NEXT:    v_or_b32_e32 v0, v1, v0
-; GFX10-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
 ; GFX10-GISEL-NEXT:    v_lshlrev_b16 v1, 2, v4
 ; GFX10-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX10-GISEL-NEXT:    v_and_b32_e32 v0, 7, v0
@@ -16536,7 +16513,6 @@ define void @freeze_v3i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX11-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
 ; GFX11-GISEL-NEXT:    v_cndmask_b32_e64 v4, 0, 1, vcc_lo
 ; GFX11-GISEL-NEXT:    v_or_b32_e32 v0, v1, v0
-; GFX11-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
 ; GFX11-GISEL-NEXT:    v_lshlrev_b16 v1, 2, v4
 ; GFX11-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX11-GISEL-NEXT:    v_and_b32_e32 v0, 7, v0
@@ -16592,13 +16568,12 @@ define void @freeze_v4i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX6-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc
 ; GFX6-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v6
 ; GFX6-GISEL-NEXT:    v_cndmask_b32_e64 v4, 0, 1, vcc
-; GFX6-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v7
 ; GFX6-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
-; GFX6-GISEL-NEXT:    v_cndmask_b32_e64 v5, 0, 1, vcc
+; GFX6-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v7
 ; GFX6-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
 ; GFX6-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
 ; GFX6-GISEL-NEXT:    v_lshlrev_b32_e32 v1, 1, v1
-; GFX6-GISEL-NEXT:    v_and_b32_e32 v5, 1, v5
+; GFX6-GISEL-NEXT:    v_cndmask_b32_e64 v5, 0, 1, vcc
 ; GFX6-GISEL-NEXT:    v_lshlrev_b32_e32 v4, 2, v4
 ; GFX6-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX6-GISEL-NEXT:    v_or_b32_e32 v0, v0, v4
@@ -16651,13 +16626,12 @@ define void @freeze_v4i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX7-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc
 ; GFX7-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v6
 ; GFX7-GISEL-NEXT:    v_cndmask_b32_e64 v4, 0, 1, vcc
-; GFX7-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v7
 ; GFX7-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
-; GFX7-GISEL-NEXT:    v_cndmask_b32_e64 v5, 0, 1, vcc
+; GFX7-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v7
 ; GFX7-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
 ; GFX7-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
 ; GFX7-GISEL-NEXT:    v_lshlrev_b32_e32 v1, 1, v1
-; GFX7-GISEL-NEXT:    v_and_b32_e32 v5, 1, v5
+; GFX7-GISEL-NEXT:    v_cndmask_b32_e64 v5, 0, 1, vcc
 ; GFX7-GISEL-NEXT:    v_lshlrev_b32_e32 v4, 2, v4
 ; GFX7-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX7-GISEL-NEXT:    v_or_b32_e32 v0, v0, v4
@@ -16703,13 +16677,12 @@ define void @freeze_v4i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX8-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc
 ; GFX8-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v6
 ; GFX8-GISEL-NEXT:    v_cndmask_b32_e64 v4, 0, 1, vcc
-; GFX8-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v7
 ; GFX8-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
-; GFX8-GISEL-NEXT:    v_cndmask_b32_e64 v5, 0, 1, vcc
+; GFX8-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v7
 ; GFX8-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
 ; GFX8-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
 ; GFX8-GISEL-NEXT:    v_lshlrev_b16_e32 v1, 1, v1
-; GFX8-GISEL-NEXT:    v_and_b32_e32 v5, 1, v5
+; GFX8-GISEL-NEXT:    v_cndmask_b32_e64 v5, 0, 1, vcc
 ; GFX8-GISEL-NEXT:    v_lshlrev_b16_e32 v4, 2, v4
 ; GFX8-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX8-GISEL-NEXT:    v_or_b32_e32 v0, v0, v4
@@ -16755,13 +16728,12 @@ define void @freeze_v4i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX9-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc
 ; GFX9-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v6
 ; GFX9-GISEL-NEXT:    v_cndmask_b32_e64 v4, 0, 1, vcc
-; GFX9-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v7
 ; GFX9-GISEL-NEXT:    v_and_b32_e32 v1, 1, v1
-; GFX9-GISEL-NEXT:    v_cndmask_b32_e64 v5, 0, 1, vcc
+; GFX9-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v7
 ; GFX9-GISEL-NEXT:    v_and_b32_e32 v0, 1, v0
 ; GFX9-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
 ; GFX9-GISEL-NEXT:    v_lshlrev_b16_e32 v1, 1, v1
-; GFX9-GISEL-NEXT:    v_and_b32_e32 v5, 1, v5
+; GFX9-GISEL-NEXT:    v_cndmask_b32_e64 v5, 0, 1, vcc
 ; GFX9-GISEL-NEXT:    v_lshlrev_b16_e32 v4, 2, v4
 ; GFX9-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX9-GISEL-NEXT:    v_or_b32_e32 v0, v0, v4
@@ -16812,11 +16784,10 @@ define void @freeze_v4i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX10-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc_lo, 0, v7
 ; GFX10-GISEL-NEXT:    v_or_b32_e32 v0, v1, v0
 ; GFX10-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
-; GFX10-GISEL-NEXT:    v_cndmask_b32_e64 v5, 0, 1, vcc_lo
+; GFX10-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc_lo
 ; GFX10-GISEL-NEXT:    v_lshlrev_b16 v4, 2, v4
-; GFX10-GISEL-NEXT:    v_and_b32_e32 v1, 1, v5
-; GFX10-GISEL-NEXT:    v_or_b32_e32 v0, v0, v4
 ; GFX10-GISEL-NEXT:    v_lshlrev_b16 v1, 3, v1
+; GFX10-GISEL-NEXT:    v_or_b32_e32 v0, v0, v4
 ; GFX10-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX10-GISEL-NEXT:    v_and_b32_e32 v0, 15, v0
 ; GFX10-GISEL-NEXT:    global_store_byte v[2:3], v0, off
@@ -16885,11 +16856,10 @@ define void @freeze_v4i1_vcc(ptr addrspace(1) %ptra, ptr addrspace(1) %ptrb) {
 ; GFX11-GISEL-NEXT:    v_cmp_eq_u32_e32 vcc_lo, 0, v7
 ; GFX11-GISEL-NEXT:    v_or_b32_e32 v0, v1, v0
 ; GFX11-GISEL-NEXT:    v_and_b32_e32 v4, 1, v4
-; GFX11-GISEL-NEXT:    v_cndmask_b32_e64 v5, 0, 1, vcc_lo
+; GFX11-GISEL-NEXT:    v_cndmask_b32_e64 v1, 0, 1, vcc_lo
 ; GFX11-GISEL-NEXT:    v_lshlrev_b16 v4, 2, v4
-; GFX11-GISEL-NEXT:    v_and_b32_e32 v1, 1, v5
-; GFX11-GISEL-NEXT:    v_or_b32_e32 v0, v0, v4
 ; GFX11-GISEL-NEXT:    v_lshlrev_b16 v1, 3, v1
+; GFX11-GISEL-NEXT:    v_or_b32_e32 v0, v0, v4
 ; GFX11-GISEL-NEXT:    v_or_b32_e32 v0, v0, v1
 ; GFX11-GISEL-NEXT:    v_and_b32_e32 v0, 15, v0
 ; GFX11-GISEL-NEXT:    global_store_b8 v[2:3], v0, off

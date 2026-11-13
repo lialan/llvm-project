@@ -9196,6 +9196,160 @@ bool CombinerHelper::simplifyDemandedBitsImpl(MachineInstr &MI, unsigned OpNo,
     }
     return Changed;
   }
+  case TargetOpcode::G_ANYEXT:
+  case TargetOpcode::G_SEXT: {
+    Register Src = DefMI->getOperand(1).getReg();
+    LLT SrcTy = MRI.getType(Src);
+    if (!OpTy.isScalar())
+      return GiveUp();
+    unsigned SrcBW = SrcTy.getSizeInBits();
+    const bool HighDemanded = Demanded.getActiveBits() > SrcBW;
+    APInt SrcDemand = Demanded.trunc(SrcBW);
+    // The bits that a sign extension adds are copies of the sign bit.
+    if (Opcode == TargetOpcode::G_SEXT && HighDemanded)
+      SrcDemand.setSignBit();
+    KnownBits SrcKnown(SrcBW);
+    bool Changed = simplifyDemandedBitsImpl(*DefMI, /*OpNo=*/1, SrcDemand,
+                                            SrcKnown, Depth + 1, DoRewrite);
+    Known = Opcode == TargetOpcode::G_SEXT ? SrcKnown.sext(BW)
+                                           : SrcKnown.anyext(BW);
+    if (Changed) {
+      DropPoisonFlags();
+      InvalidateDebugUses(Demanded);
+      return true;
+    }
+
+    if (Opcode == TargetOpcode::G_SEXT) {
+      // Without demanded high bits, or with a sign bit known to be zero, a
+      // cheaper extension gives the same demanded bits. The zero extension
+      // has no nneg flag, which nneg_zext would turn back into a G_SEXT.
+      unsigned NewOpc = !HighDemanded              ? TargetOpcode::G_ANYEXT
+                        : SrcKnown.isNonNegative() ? TargetOpcode::G_ZEXT
+                                                   : 0;
+      if (NewOpc && isLegalOrBeforeLegalizer({NewOpc, {OpTy, SrcTy}}))
+        return BuildReplacement([&]() {
+          return Builder.buildInstr(NewOpc, {OpTy}, {Src}).getReg(0);
+        });
+      return false;
+    }
+
+    // (anyext (shift (trunc X), C)) is (shift X, C) on the low bits, except
+    // for the bits that a right shift fills. X already has the wide type, so
+    // this removes the truncation and the narrow shift when the user forms an
+    // extract with the wide shift.
+    if (MI.getOpcode() != TargetOpcode::G_AND &&
+        MI.getOpcode() != TargetOpcode::G_SEXT_INREG)
+      return false;
+    MachineInstr *Shift = MRI.getVRegDef(Src);
+    unsigned ShiftOpc = Shift->getOpcode();
+    if ((ShiftOpc != TargetOpcode::G_LSHR && ShiftOpc != TargetOpcode::G_ASHR &&
+         ShiftOpc != TargetOpcode::G_SHL) ||
+        !MRI.hasOneNonDBGUse(Src))
+      return false;
+    MachineInstr *Trunc = MRI.getVRegDef(Shift->getOperand(1).getReg());
+    if (Trunc->getOpcode() != TargetOpcode::G_TRUNC ||
+        MRI.getType(Trunc->getOperand(1).getReg()) != OpTy)
+      return false;
+    std::optional<unsigned> Amt = getValidConstShiftAmt(
+        getConstantOrConstantSplatVector(Shift->getOperand(2).getReg()), SrcBW);
+    if (!Amt)
+      return false;
+    if (ShiftOpc != TargetOpcode::G_SHL &&
+        Demanded.intersects(APInt::getBitsSet(BW, SrcBW - *Amt, SrcBW)))
+      return false;
+    const unsigned WideOpc = ShiftOpc == TargetOpcode::G_SHL
+                                 ? TargetOpcode::G_SHL
+                                 : TargetOpcode::G_LSHR;
+    LLT AmtTy = getTargetLowering().getPreferredShiftAmountTy(OpTy);
+    if (!isLegalOrBeforeLegalizer({WideOpc, {OpTy, AmtTy}}) ||
+        !isConstantLegalOrBeforeLegalizer(AmtTy))
+      return false;
+    return BuildReplacement([&]() {
+      return Builder
+          .buildInstr(WideOpc, {OpTy},
+                      {Trunc->getOperand(1).getReg(),
+                       Builder.buildConstant(AmtTy, *Amt)})
+          .getReg(0);
+    });
+  }
+  case TargetOpcode::G_SEXT_INREG: {
+    Register Src = DefMI->getOperand(1).getReg();
+    unsigned Bits = DefMI->getOperand(2).getImm();
+    // Without demanded copies of the sign bit, the input is the same.
+    APInt Fill = APInt::getBitsSetFrom(BW, Bits);
+    if (!Demanded.intersects(Fill)) {
+      Known = VT->getKnownBits(Src, DemandedElts, Depth + 1);
+      return Rewrite(Src);
+    }
+    APInt SrcDemand = Demanded & ~Fill;
+    SrcDemand.setBit(Bits - 1);
+    KnownBits SrcKnown(BW);
+    bool Changed = simplifyDemandedBitsImpl(*DefMI, /*OpNo=*/1, SrcDemand,
+                                            SrcKnown, Depth + 1, DoRewrite);
+    Known = SrcKnown.sextInReg(Bits);
+    if (Changed) {
+      DropPoisonFlags();
+      InvalidateDebugUses(Demanded);
+      return true;
+    }
+    return FoldKnown();
+  }
+  case TargetOpcode::G_UBFX:
+  case TargetOpcode::G_SBFX: {
+    Register Src = DefMI->getOperand(1).getReg();
+    Register PosReg = DefMI->getOperand(2).getReg();
+    std::optional<APInt> Pos = getConstantOrConstantSplatVector(PosReg);
+    std::optional<APInt> Width =
+        getConstantOrConstantSplatVector(DefMI->getOperand(3).getReg());
+    // The extract is poison unless its field lies inside the value.
+    if (!OpTy.isScalar() || !Pos || !Width || Width->isZero() || Pos->uge(BW) ||
+        Width->ugt(BW - Pos->getZExtValue()))
+      return GiveUp();
+    const unsigned P = Pos->getZExtValue(), W = Width->getZExtValue();
+    Known = VT->getKnownBits(OpReg, DemandedElts, Depth);
+    // On the bits of the field, an extract is a right shift by its position.
+    if (Demanded.getActiveBits() <= W &&
+        isLegalOrBeforeLegalizer(
+            {TargetOpcode::G_LSHR, {OpTy, MRI.getType(PosReg)}}))
+      return BuildReplacement(
+          [&]() { return Builder.buildLShr(OpTy, Src, PosReg).getReg(0); });
+    APInt SrcDemand = (Demanded & APInt::getLowBitsSet(BW, W)).shl(P);
+    if (Opcode == TargetOpcode::G_SBFX &&
+        Demanded.intersects(APInt::getBitsSetFrom(BW, W)))
+      SrcDemand.setBit(P + W - 1);
+    KnownBits SrcKnown(BW);
+    if (simplifyDemandedBitsImpl(*DefMI, /*OpNo=*/1, SrcDemand, SrcKnown,
+                                 Depth + 1, DoRewrite)) {
+      DropPoisonFlags();
+      InvalidateDebugUses(Demanded);
+      return true;
+    }
+    return FoldKnown();
+  }
+  case TargetOpcode::G_MERGE_VALUES: {
+    // Each part is demanded for the bits of the result that it provides; a
+    // part without demanded bits becomes undef.
+    LLT PartTy = MRI.getType(DefMI->getOperand(1).getReg());
+    if (!OpTy.isScalar() || !PartTy.isScalar())
+      return GiveUp();
+    const unsigned PartBW = PartTy.getSizeInBits();
+    bool Changed = false;
+    KnownBits MergedKnown;
+    for (unsigned I = 0, E = DefMI->getNumOperands() - 1; I != E; ++I) {
+      KnownBits PartKnown(PartBW);
+      Changed |= simplifyDemandedBitsImpl(
+          *DefMI, /*OpNo=*/1 + I, Demanded.extractBits(PartBW, I * PartBW),
+          PartKnown, Depth + 1, DoRewrite);
+      MergedKnown = I == 0 ? PartKnown : PartKnown.concat(MergedKnown);
+    }
+    Known = MergedKnown;
+    if (Changed) {
+      DropPoisonFlags();
+      InvalidateDebugUses(Demanded);
+      return true;
+    }
+    return FoldKnown();
+  }
   default:
     return GiveUp();
   }
@@ -9244,6 +9398,10 @@ bool CombinerHelper::matchSimplifyDemandedBits(MachineInstr &MI,
     MatchInfo = [this, &MI, OpNo, OpDemand](MachineIRBuilder &) {
       KnownBits K(OpDemand.getBitWidth());
       simplifyDemandedBits(MI, OpNo, OpDemand, K);
+      // The rewrite may only change instructions above MI. Report MI as
+      // changed so that the other rules see it again with its new operands.
+      Observer.changingInstr(MI);
+      Observer.changedInstr(MI);
     };
     return true;
   };
@@ -9265,7 +9423,9 @@ bool CombinerHelper::matchSimplifyDemandedBits(MachineInstr &MI,
   }
   case TargetOpcode::G_TRUNC:
   case TargetOpcode::G_XOR:
-  case TargetOpcode::G_SELECT: {
+  case TargetOpcode::G_SELECT:
+  case TargetOpcode::G_SEXT:
+  case TargetOpcode::G_SEXT_INREG: {
     KnownBits Known(RootDemand.getBitWidth());
     if (!simplifyDemandedBitsImpl(MI, /*OpNo=*/0, RootDemand, Known,
                                   /*Depth=*/0, /*DoRewrite=*/false))
@@ -9305,7 +9465,8 @@ bool CombinerHelper::matchSimplifyDemandedBits(MachineInstr &MI,
 
     Register RHS = MI.getOperand(2).getReg();
     if (!MRI.hasOneNonDBGUse(RHS) || getConstantOrConstantSplatVector(RHS))
-      return false;
+      return Opcode == TargetOpcode::G_AND &&
+             matchNarrowAndOfAnyExt(MI, MatchInfo);
 
     APInt RHSDemand =
         LHSDemand == RootDemand
@@ -9314,7 +9475,64 @@ bool CombinerHelper::matchSimplifyDemandedBits(MachineInstr &MI,
                   Opcode, RootDemand,
                   VT->getKnownBits(MI.getOperand(1).getReg()));
     KnownBits RetryKnown(RootDemand.getBitWidth());
-    return RHSDemand != RootDemand && Probe(/*OpNo=*/2, RHSDemand, RetryKnown);
+    if (RHSDemand != RootDemand && Probe(/*OpNo=*/2, RHSDemand, RetryKnown))
+      return true;
+    return Opcode == TargetOpcode::G_AND &&
+           matchNarrowAndOfAnyExt(MI, MatchInfo);
   }
   }
+}
+
+bool CombinerHelper::matchNarrowAndOfAnyExt(MachineInstr &MI,
+                                            BuildFnTy &MatchInfo) const {
+  // Like SelectionDAG: (and (anyext Y), C) -> (zext Y) if the AND only clears
+  // the bits that the extension adds, or (zext (and Y, C)) if C keeps none of
+  // them and Y is a shift that the narrow AND forms an extract with. Without
+  // the shift this only trades a free extension for a zero extension.
+  Register Dst = MI.getOperand(0).getReg();
+  Register Ext = MI.getOperand(1).getReg();
+  std::optional<APInt> C = getIConstantVRegVal(MI.getOperand(2).getReg(), MRI);
+  MachineInstr *ExtMI = MRI.getVRegDef(Ext);
+  if (!C || ExtMI->getOpcode() != TargetOpcode::G_ANYEXT ||
+      !MRI.hasOneNonDBGUse(Ext))
+    return false;
+  Register Y = ExtMI->getOperand(1).getReg();
+  LLT Ty = MRI.getType(Dst), SrcTy = MRI.getType(Y);
+  const unsigned BW = Ty.getSizeInBits(), SrcBW = SrcTy.getSizeInBits();
+  const TargetLowering &TLI = getTargetLowering();
+  // Only narrow to a type that holds bit fields natively, which keeps
+  // operations of types such as AMDGPU's 16-bit ones from being created.
+  if (!LI ||
+      !LI->isLegalOrCustom({TargetOpcode::G_UBFX,
+                            {SrcTy, TLI.getPreferredShiftAmountTy(SrcTy)}}))
+    return false;
+  if (C->countLeadingZeros() < BW - SrcBW ||
+      !TLI.isZExtFree(SrcTy, Ty, getContext()) ||
+      !isLegalOrBeforeLegalizer({TargetOpcode::G_ZEXT, {Ty, SrcTy}}))
+    return false;
+  APInt NarrowC = C->trunc(SrcBW);
+  if ((VT->getKnownBits(Y).Zero | NarrowC).isAllOnes()) {
+    MatchInfo = [=, &MI](MachineIRBuilder &B) {
+      B.setInstrAndDebugLoc(MI);
+      B.buildZExt(Dst, Y);
+      MI.eraseFromParent();
+    };
+    return true;
+  }
+  MachineInstr *YDef = MRI.getVRegDef(Y);
+  if ((YDef->getOpcode() != TargetOpcode::G_LSHR &&
+       YDef->getOpcode() != TargetOpcode::G_ASHR) ||
+      !getIConstantVRegVal(YDef->getOperand(2).getReg(), MRI) ||
+      !TLI.isTypeDesirableForOp(ISD::AND,
+                                getApproximateEVTForLLT(SrcTy, getContext())) ||
+      !isLegalOrBeforeLegalizer({TargetOpcode::G_AND, {SrcTy}}) ||
+      !isConstantLegalOrBeforeLegalizer(SrcTy))
+    return false;
+  MatchInfo = [=, &MI](MachineIRBuilder &B) {
+    B.setInstrAndDebugLoc(MI);
+    auto And = B.buildAnd(SrcTy, Y, B.buildConstant(SrcTy, NarrowC));
+    B.buildZExt(Dst, And);
+    MI.eraseFromParent();
+  };
+  return true;
 }

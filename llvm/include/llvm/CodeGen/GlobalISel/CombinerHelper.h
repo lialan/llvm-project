@@ -1098,6 +1098,10 @@ public:
                                           BuildFnTy &MatchInfo) const;
 
 private:
+  /// Narrow a root (and (anyext Y), C) whose constant clears the bits that
+  /// the extension adds to (zext (and Y, C)), or (zext Y).
+  bool matchNarrowAndOfAnyExt(MachineInstr &MI, BuildFnTy &MatchInfo) const;
+
   Register simplifyMultipleUseDemandedBits(Register R,
                                            const APInt &DemandedBits,
                                            unsigned Depth) const;

@@ -820,6 +820,9 @@ CodeGenRegisterClass::CodeGenRegisterClass(CodeGenRegBank &RegBank,
     PrintFatalError(R->getLoc(), "AllocationPriority out of range [0,31]");
   this->AllocationPriority = AllocationPriority;
 
+  if (!R->isValueUnset("Weight"))
+    Weight = R->getValueAsInt("Weight");
+
   GlobalPriority = R->getValueAsBit("GlobalPriority");
 
   const BitsInit *TSF = R->getValueAsBitsInit("TSFlags");
@@ -880,6 +883,9 @@ void CodeGenRegisterClass::inheritProperties(CodeGenRegBank &RegBank) {
   GlobalPriority = Super.GlobalPriority;
   TSFlags = Super.TSFlags;
   SpillStackID = Super.SpillStackID;
+  // A sub-class has the same register size as its super-class, so each member
+  // takes the same number of registers from the pressure set.
+  Weight = Super.Weight;
   GeneratePressureSet |= Super.GeneratePressureSet;
 
   // Copy all allocation orders, filter out foreign registers from the larger
@@ -916,8 +922,8 @@ bool CodeGenRegisterClass::contains(const CodeGenRegister *Reg) const {
 }
 
 unsigned CodeGenRegisterClass::getWeight(const CodeGenRegBank &RegBank) const {
-  if (TheDef && !TheDef->isValueUnset("Weight"))
-    return TheDef->getValueAsInt("Weight");
+  if (Weight)
+    return *Weight;
 
   if (Artificial)
     return 0;

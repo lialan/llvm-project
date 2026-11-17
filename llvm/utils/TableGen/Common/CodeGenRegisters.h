@@ -434,6 +434,10 @@ public:
   bool GlobalPriority;
   uint8_t TSFlags;
   uint8_t SpillStackID;
+  /// Pressure weight from the record's Weight field. A synthesized class
+  /// inherits it from its super-class. When unset, getWeight() uses the
+  /// register unit weights of the members.
+  std::optional<unsigned> Weight;
   /// Contains the combination of the lane masks of all subregisters.
   LaneBitmask LaneMask;
   /// True if there are at least 2 subregisters which do not interfere.

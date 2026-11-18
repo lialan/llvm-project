@@ -24,16 +24,16 @@ define nofpclass(nan inf) float @arm_canberra_distance_f32(ptr noundef readonly 
 ; CHECK-NEXT:  @ %bb.2: @ %if.then
 ; CHECK-NEXT:    @ in Loop: Header=BB0_1 Depth=1
 ; CHECK-NEXT:    @APP
-; CHECK-NEXT:    vabs.f32 s6, s4
-; CHECK-NEXT:    @NO_APP
-; CHECK-NEXT:    @APP
 ; CHECK-NEXT:    vabs.f32 s8, s2
 ; CHECK-NEXT:    @NO_APP
+; CHECK-NEXT:    @APP
+; CHECK-NEXT:    vabs.f32 s6, s4
+; CHECK-NEXT:    @NO_APP
 ; CHECK-NEXT:    vsub.f32 s2, s4, s2
-; CHECK-NEXT:    vadd.f32 s6, s8, s6
 ; CHECK-NEXT:    @APP
 ; CHECK-NEXT:    vabs.f32 s2, s2
 ; CHECK-NEXT:    @NO_APP
+; CHECK-NEXT:    vadd.f32 s6, s8, s6
 ; CHECK-NEXT:    vdiv.f32 s2, s2, s6
 ; CHECK-NEXT:    vadd.f32 s0, s2, s0
 ; CHECK-NEXT:  .LBB0_3: @ %if.end

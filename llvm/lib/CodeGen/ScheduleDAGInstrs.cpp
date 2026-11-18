@@ -256,10 +256,16 @@ void ScheduleDAGInstrs::addPhysRegDataDeps(SUnit *SU, unsigned OperIdx) {
   const TargetSubtargetInfo &ST = MF.getSubtarget();
 
   // Only use any non-zero latency for real defs/uses, in contrast to
-  // "fake" operands added by regalloc.
+  // "fake" operands added by regalloc. Inline asm outputs are real defs: they
+  // belong to an asm operand group, even though they are beyond the fixed
+  // operands of the instruction descriptor. Trailing register bookkeeping
+  // operands are not part of any group.
   const MCInstrDesc &DefMIDesc = SU->getInstr()->getDesc();
-  bool ImplicitPseudoDef = (OperIdx >= DefMIDesc.getNumOperands() &&
-                            !DefMIDesc.hasImplicitDefOfPhysReg(Reg));
+  bool IsInlineAsmDef = SU->getInstr()->isInlineAsm() &&
+                        SU->getInstr()->findInlineAsmFlagIdx(OperIdx) >= 0;
+  bool ImplicitPseudoDef = OperIdx >= DefMIDesc.getNumOperands() &&
+                           !DefMIDesc.hasImplicitDefOfPhysReg(Reg) &&
+                           !IsInlineAsmDef;
   for (MCRegUnit Unit : TRI->regunits(Reg)) {
     for (RegUnit2SUnitsMap::iterator I = Uses.find(Unit); I != Uses.end();
          ++I) {

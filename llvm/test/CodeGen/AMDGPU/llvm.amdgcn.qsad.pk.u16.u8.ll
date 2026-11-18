@@ -68,11 +68,11 @@ define amdgpu_kernel void @v_qsad_pk_u16_u8_non_immediate(ptr addrspace(1) %out,
 ; VI-SDAG-NEXT:    ;;#ASMSTART
 ; VI-SDAG-NEXT:    ; def v[2:3], use v[0:1]
 ; VI-SDAG-NEXT:    ;;#ASMEND
-; VI-SDAG-NEXT:    v_mov_b32_e32 v0, s4
-; VI-SDAG-NEXT:    v_mov_b32_e32 v1, s5
 ; VI-SDAG-NEXT:    ;;#ASMSTART
 ; VI-SDAG-NEXT:    v_mov_b32_e32 v4, v4
 ; VI-SDAG-NEXT:    ;;#ASMEND
+; VI-SDAG-NEXT:    v_mov_b32_e32 v0, s4
+; VI-SDAG-NEXT:    v_mov_b32_e32 v1, s5
 ; VI-SDAG-NEXT:    ;;#ASMSTART
 ; VI-SDAG-NEXT:    ; def v[6:7], use v[0:1]
 ; VI-SDAG-NEXT:    ;;#ASMEND
@@ -99,11 +99,11 @@ define amdgpu_kernel void @v_qsad_pk_u16_u8_non_immediate(ptr addrspace(1) %out,
 ; VI-GISEL-NEXT:    ;;#ASMSTART
 ; VI-GISEL-NEXT:    ; def v[2:3], use v[0:1]
 ; VI-GISEL-NEXT:    ;;#ASMEND
-; VI-GISEL-NEXT:    v_mov_b32_e32 v0, s4
-; VI-GISEL-NEXT:    v_mov_b32_e32 v1, s5
 ; VI-GISEL-NEXT:    ;;#ASMSTART
 ; VI-GISEL-NEXT:    v_mov_b32_e32 v4, v4
 ; VI-GISEL-NEXT:    ;;#ASMEND
+; VI-GISEL-NEXT:    v_mov_b32_e32 v0, s4
+; VI-GISEL-NEXT:    v_mov_b32_e32 v1, s5
 ; VI-GISEL-NEXT:    ;;#ASMSTART
 ; VI-GISEL-NEXT:    ; def v[6:7], use v[0:1]
 ; VI-GISEL-NEXT:    ;;#ASMEND
